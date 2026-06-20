@@ -51,6 +51,7 @@ class ScreenManager:
         from app.ui.screens.leaderboard_screen import LeaderboardScreen
         from app.ui.screens.player_setup_screen import PlayerSetupScreen
         from app.ui.screens.score_reveal_screen import ScoreRevealScreen
+        from app.ui.screens.sixty_seven_screen import SixtySevenScreen
 
         self.config = config
         self.leaderboard_service = leaderboard_service
@@ -61,6 +62,7 @@ class ScreenManager:
         self._screens: dict[str, Screen] = {
             "home": HomeScreen(self),
             "player_setup": PlayerSetupScreen(self),
+            "sixty_seven": SixtySevenScreen(self),
             "score_reveal": ScoreRevealScreen(self),
             "leaderboard": LeaderboardScreen(self),
         }
