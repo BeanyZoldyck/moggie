@@ -64,35 +64,61 @@ class ScoreRevealScreen:
 
         panel_w = min(920, width - 96)
         panel_x = (width - panel_w) // 2
-        row_h = 104
+        row_h = 132 if any(row.get("crop_bgr") is not None for row in rows) else 104
         start_y = 174
         for index, row in enumerate(rows):
             rect = pygame.Rect(panel_x, start_y + index * (row_h + 24), panel_w, row_h)
             color = theme.PLAYER_COLORS[index % len(theme.PLAYER_COLORS)]
-            draw_panel(pygame, surface, rect, fill=theme.SURFACE, border=color, width=2)
+            border = theme.WARNING if row.get("winner") else color
+            draw_panel(pygame, surface, rect, fill=theme.SURFACE, border=border, width=2)
+            crop_rect = pygame.Rect(rect.left + 18, rect.top + 14, 96, rect.height - 28)
+            if row.get("crop_bgr") is not None:
+                self._draw_crop(pygame, surface, crop_rect, row["crop_bgr"], color)
+                text_x = crop_rect.right + 24
+            else:
+                text_x = rect.left + 86
             draw_text(
                 surface,
                 f"P{index + 1}",
                 fonts.body,
-                color,
-                (rect.left + 26, rect.centery),
-                anchor="midleft",
+                border,
+                (rect.left + 26, rect.top + 18),
+            )
+            winner_text = "WINNER" if row.get("winner") else str(row.get("label") or "")
+            draw_text(
+                surface,
+                winner_text,
+                fonts.small,
+                border if row.get("winner") else theme.TEXT_MUTED,
+                (rect.left + 26, rect.bottom - 34),
+                max_width=90,
             )
             draw_text(
                 surface,
                 str(row["display_name"]),
                 fonts.card_title,
                 theme.TEXT,
-                (rect.left + 86, rect.centery),
-                anchor="midleft",
-                max_width=rect.width - 280,
+                (text_x, rect.top + 24),
+                max_width=rect.width - (text_x - rect.left) - 230,
             )
+            label = str(row.get("label") or "")
+            if label:
+                rank = row.get("rank")
+                label_text = f"{label} / RANK #{rank}" if rank else label
+                draw_text(
+                    surface,
+                    label_text,
+                    fonts.small,
+                    theme.TEXT_MUTED,
+                    (text_x, rect.bottom - 38),
+                    max_width=rect.width - (text_x - rect.left) - 230,
+                )
             score = "--" if row.get("score") is None else str(row["score"])
             draw_text(
                 surface,
                 score,
                 fonts.card_title,
-                theme.TEXT_MUTED,
+                theme.TEXT,
                 (rect.right - 34, rect.centery),
                 anchor="midright",
             )
@@ -103,4 +129,23 @@ class ScoreRevealScreen:
         draw_button(pygame, surface, home_rect, "HOME", fonts.body, selected=True, accent=game.accent)
         draw_button(pygame, surface, board_rect, "BOARD", fonts.body, selected=False, accent=game.accent)
         draw_bottom_rule(pygame, surface, height - 44, width)
-        draw_text(surface, "GAME MODULE PLACEHOLDER", fonts.small, theme.TEXT_MUTED, (48, height - 32))
+        draw_text(surface, "ENTER HOME / L BOARD", fonts.small, theme.TEXT_MUTED, (48, height - 32))
+
+    def _draw_crop(
+        self,
+        pygame: Any,
+        surface: Any,
+        rect: Any,
+        crop_bgr: Any,
+        border: tuple[int, int, int],
+    ) -> None:
+        pygame.draw.rect(surface, theme.SURFACE_DARK, rect, border_radius=8)
+        try:
+            rgb = crop_bgr[:, :, ::-1]
+            h, w = rgb.shape[:2]
+            image = pygame.image.frombuffer(rgb.tobytes(), (w, h), "RGB").convert()
+            image = pygame.transform.smoothscale(image, rect.inflate(-8, -8).size)
+            surface.blit(image, rect.inflate(-8, -8))
+        except Exception:
+            draw_text(surface, "NO CROP", self.fonts.small, theme.TEXT_MUTED, rect.center, anchor="center")
+        pygame.draw.rect(surface, border, rect, 2, border_radius=8)

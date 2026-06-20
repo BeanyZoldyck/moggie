@@ -169,6 +169,9 @@ class PlayerSetupScreen:
             }
             for name in names
         ]
+        if self.manager.state.selected_game_type == "mog_mirror":
+            self.manager.go_to("mog_mirror")
+            return
         if self.manager.state.selected_game_type == "sixty_seven":
             self.manager.go_to("sixty_seven")
             return

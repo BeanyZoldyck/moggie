@@ -8,6 +8,7 @@ from app.core.app_event import AppEvent
 from app.core.game_catalog import GAMES
 from app.services.camera_service import CameraService
 from app.services.cv_service import CVService
+from app.services.ai_job_service import AIJobService
 from app.services.leaderboard_service import LeaderboardService
 
 
@@ -45,10 +46,12 @@ class ScreenManager:
         *,
         camera_service: CameraService | None = None,
         cv_service: CVService | None = None,
+        ai_job_service: AIJobService | None = None,
         initial_screen: str = "home",
     ) -> None:
         from app.ui.screens.home_screen import HomeScreen
         from app.ui.screens.leaderboard_screen import LeaderboardScreen
+        from app.ui.screens.mog_mirror_screen import MogMirrorScreen
         from app.ui.screens.player_setup_screen import PlayerSetupScreen
         from app.ui.screens.score_reveal_screen import ScoreRevealScreen
         from app.ui.screens.sixty_seven_screen import SixtySevenScreen
@@ -57,11 +60,13 @@ class ScreenManager:
         self.leaderboard_service = leaderboard_service
         self.camera_service = camera_service
         self.cv_service = cv_service
+        self.ai_job_service = ai_job_service
         self.state = ScreenState()
         self.should_quit = False
         self._screens: dict[str, Screen] = {
             "home": HomeScreen(self),
             "player_setup": PlayerSetupScreen(self),
+            "mog_mirror": MogMirrorScreen(self),
             "sixty_seven": SixtySevenScreen(self),
             "score_reveal": ScoreRevealScreen(self),
             "leaderboard": LeaderboardScreen(self),

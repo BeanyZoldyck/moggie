@@ -39,6 +39,7 @@ class MoggieApp:
             self.leaderboard_service,
             camera_service=self.camera_service,
             cv_service=self.cv_service,
+            ai_job_service=self.ai_job_service,
         )
         self.running = False
 

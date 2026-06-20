@@ -43,12 +43,41 @@ class ShellNavigationTests(unittest.TestCase):
         screen.values = ["", "  "]
         screen._submit()
 
-        self.assertEqual(manager.current_screen, "score_reveal")
+        self.assertEqual(manager.current_screen, "mog_mirror")
         self.assertEqual(manager.state.player_names, ["Player 1", "Player 2"])
         self.assertEqual(
             [row["display_name"] for row in manager.state.reveal_rows],
             ["Player 1", "Player 2"],
         )
+
+    def test_mog_mirror_setup_routes_to_gameplay_screen(self) -> None:
+        manager = self._manager()
+        manager.state.selected_game_type = "mog_mirror"
+        manager.go_to("player_setup")
+
+        screen = manager.active
+        screen.values = ["Mina", "Nico"]
+        screen._submit()
+
+        self.assertEqual(manager.current_screen, "mog_mirror")
+        self.assertEqual(manager.state.player_names, ["Mina", "Nico"])
+
+    def test_mog_mirror_finish_persists_offline_scores_to_leaderboard(self) -> None:
+        manager = self._manager()
+        manager.state.selected_game_type = "mog_mirror"
+        manager.state.player_names = ["Mina", "Nico"]
+        manager.go_to("mog_mirror")
+
+        screen = manager.active
+        screen.manual_override = True
+        screen._finish_round()
+
+        self.assertEqual(manager.current_screen, "score_reveal")
+        self.assertEqual([row["display_name"] for row in manager.state.reveal_rows], ["Mina", "Nico"])
+        self.assertTrue(all(isinstance(row["score"], int) for row in manager.state.reveal_rows))
+        leaders = manager.leaderboard_service.top_scores("mog_mirror")
+        self.assertEqual(len(leaders), 2)
+        self.assertEqual({entry["display_name"] for entry in leaders}, {"Mina", "Nico"})
 
     def test_sixty_seven_setup_routes_to_gameplay_screen(self) -> None:
         manager = self._manager()
