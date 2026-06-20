@@ -19,12 +19,13 @@ class MockAIClient:
 class MockImageGenerationClient(MockAIClient):
     async def generate_caricature(self, image_bytes: bytes, prompt: str, metadata: dict[str, Any]) -> dict[str, Any]:
         await self._simulate(metadata)
+        result_metadata = {key: value for key, value in metadata.items() if key != "image_bytes"}
         return {
             "provider": self.provider_name,
             "kind": "image",
             "uri": f"mock://image/{metadata.get('display_name', 'player')}",
             "prompt": prompt,
-            "metadata": metadata,
+            "metadata": result_metadata,
             "bytes": len(image_bytes),
         }
 

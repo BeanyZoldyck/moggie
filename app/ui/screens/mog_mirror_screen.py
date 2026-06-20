@@ -8,6 +8,7 @@ from app.ui import theme
 from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.face_overlay_renderer import FaceOverlayRenderer
+from app.util.images import encode_bgr_jpeg
 
 
 def _pygame() -> Any:
@@ -239,6 +240,10 @@ class MogMirrorScreen:
             "has_crop": crop is not None,
         }
         if self.manager.config.enable_image_generation:
+            image_bytes = encode_bgr_jpeg(crop)
+            if image_bytes:
+                payload["image_bytes"] = image_bytes
+                payload["image_mime_type"] = "image/jpeg"
             job_ids.append(service.submit("mog_mirror.caricature", payload))
         if self.manager.config.enable_pika:
             job_ids.append(service.submit("mog_mirror.victory_video", payload))

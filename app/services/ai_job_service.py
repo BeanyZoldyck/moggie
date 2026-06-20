@@ -13,6 +13,7 @@ from app.ai.base import (
     VisionValidationClient,
 )
 from app.ai.fal_pika_client import FalPikaClient
+from app.ai.midjourney_mcp_client import MidjourneyMCPClient
 from app.ai.mock_clients import (
     MockImageGenerationClient,
     MockTextGenerationClient,
@@ -61,6 +62,16 @@ class AIJobService:
 
     @classmethod
     def from_config(cls, config: MoggieConfig, *, event_bus: EventBus) -> "AIJobService":
+        image_client: ImageGenerationClient | None = None
+        if config.enable_image_generation and config.enable_midjourney:
+            image_client = MidjourneyMCPClient(
+                mcp_url=config.midjourney_mcp_url,
+                token_store=config.midjourney_token_store,
+                client_id=config.midjourney_client_id,
+                client_secret=config.midjourney_client_secret,
+                timeout_seconds=config.ai_timeout_seconds,
+            )
+
         video_client: VideoGenerationClient | None = None
         if config.enable_pika and config.fal_key:
             video_client = FalPikaClient(
@@ -75,7 +86,12 @@ class AIJobService:
                     )
                 ),
             )
-        return cls(event_bus=event_bus, video_client=video_client, timeout_seconds=config.ai_timeout_seconds)
+        return cls(
+            event_bus=event_bus,
+            image_client=image_client,
+            video_client=video_client,
+            timeout_seconds=config.ai_timeout_seconds,
+        )
 
     @property
     def is_running(self) -> bool:

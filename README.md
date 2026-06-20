@@ -27,8 +27,15 @@ In development mode, `python -m app.main` opens the windowed native shell. Use `
 ./scripts/dev.sh
 ./scripts/init_db.sh
 ./scripts/smoke_test_camera.py
+./scripts/auth_midjourney.py
 ./scripts/run_game.sh
 ```
+
+## Midjourney Setup
+
+Mog Mirror can use Midjourney's MCP server for async caricatures when `MOGGIE_ENABLE_IMAGE_GENERATION=true` and `MOGGIE_ENABLE_MIDJOURNEY=true`. Run `scripts/auth_midjourney.py` during setup over SSH or an admin terminal, complete OAuth on a phone or laptop, and paste the final callback URL back into the script.
+
+The script writes token state to `MOGGIE_MIDJOURNEY_TOKEN_STORE`, defaulting to `~/.config/moggie/midjourney_oauth.json`, with `0600` permissions. The kiosk service later uses that token store without opening a browser. Missing or expired auth only fails the AI job; the local score reveal still completes.
 
 ## Raspberry Pi Launch Notes
 
