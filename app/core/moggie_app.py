@@ -5,6 +5,7 @@ from typing import Any
 
 from app.config import MoggieConfig
 from app.core.screen_manager import ScreenManager
+from app.services.camera_service import CameraService
 from app.services.leaderboard_service import LeaderboardService
 
 LOGGER = logging.getLogger(__name__)
@@ -22,7 +23,8 @@ class MoggieApp:
     def __init__(self, config: MoggieConfig) -> None:
         self.config = config
         self.leaderboard_service = LeaderboardService.from_config(config)
-        self.screen_manager = ScreenManager(config, self.leaderboard_service)
+        self.camera_service = CameraService.from_config(config)
+        self.screen_manager = ScreenManager(config, self.leaderboard_service, camera_service=self.camera_service)
         self.running = False
 
     def run(self, frames: int | None = None) -> None:
@@ -45,8 +47,10 @@ class MoggieApp:
         )
 
         try:
+            self.camera_service.start()
             while self.running and (max_frames == 0 or frame_count < max_frames):
                 dt_ms = clock.tick(self.target_fps)
+                self.camera_service.poll()
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
@@ -65,6 +69,7 @@ class MoggieApp:
                     self.running = False
                 frame_count += 1
         finally:
+            self.camera_service.stop()
             pygame.quit()
             LOGGER.info("Moggie app exited after %s frame(s)", frame_count)
 

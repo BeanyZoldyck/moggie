@@ -5,6 +5,7 @@ from typing import Any, Protocol
 
 from app.config import MoggieConfig
 from app.core.game_catalog import GAMES
+from app.services.camera_service import CameraService
 from app.services.leaderboard_service import LeaderboardService
 
 
@@ -37,6 +38,7 @@ class ScreenManager:
         config: MoggieConfig,
         leaderboard_service: LeaderboardService,
         *,
+        camera_service: CameraService | None = None,
         initial_screen: str = "home",
     ) -> None:
         from app.ui.screens.home_screen import HomeScreen
@@ -46,6 +48,7 @@ class ScreenManager:
 
         self.config = config
         self.leaderboard_service = leaderboard_service
+        self.camera_service = camera_service
         self.state = ScreenState()
         self.should_quit = False
         self._screens: dict[str, Screen] = {
