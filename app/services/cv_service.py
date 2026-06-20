@@ -123,6 +123,14 @@ class CVService:
         phase = (frame_number % self.cv_fps) / self.cv_fps
         left_x = 0.25 + 0.04 * phase
         right_x = 0.75 - 0.04 * phase
+        expressions = [
+            {"smile": 0.85},
+            {"mouth_open": 0.9},
+            {"left_eye_closed": 0.9, "right_eye_closed": 0.88},
+            {"left_eye_closed": 0.9, "right_eye_closed": 0.1},
+            {"neutral": 1.0},
+        ]
+        expression = expressions[(frame_number // max(1, self.cv_fps)) % len(expressions)]
         raw_hands = [
             {
                 "hand_id": "mock-left",
@@ -144,6 +152,7 @@ class CVService:
                 "center": normalized_point(0.25, 0.38),
                 "bbox": {"x": 0.18, "y": 0.18, "width": 0.14, "height": 0.26},
                 "landmarks": [normalized_point(0.25, 0.34), normalized_point(0.22, 0.38)],
+                "expression_features": expression,
             },
             {
                 "face_id": "mock-p2",
@@ -151,6 +160,7 @@ class CVService:
                 "center": normalized_point(0.75, 0.38),
                 "bbox": {"x": 0.68, "y": 0.18, "width": 0.14, "height": 0.26},
                 "landmarks": [normalized_point(0.75, 0.34), normalized_point(0.78, 0.38)],
+                "expression_features": expression,
             },
         ]
         hand_assignments = [assign_hand(hand, split_x=self.zone_split_x) for hand in raw_hands]

@@ -175,4 +175,7 @@ class PlayerSetupScreen:
         if self.manager.state.selected_game_type == "sixty_seven":
             self.manager.go_to("sixty_seven")
             return
+        if self.manager.state.selected_game_type == "emoji_face_match":
+            self.manager.go_to("emoji_face_match")
+            return
         self.manager.go_to("score_reveal")

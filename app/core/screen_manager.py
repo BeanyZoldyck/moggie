@@ -50,6 +50,7 @@ class ScreenManager:
         initial_screen: str = "home",
     ) -> None:
         from app.ui.screens.home_screen import HomeScreen
+        from app.ui.screens.emoji_face_match_screen import EmojiFaceMatchScreen
         from app.ui.screens.leaderboard_screen import LeaderboardScreen
         from app.ui.screens.mog_mirror_screen import MogMirrorScreen
         from app.ui.screens.player_setup_screen import PlayerSetupScreen
@@ -66,6 +67,7 @@ class ScreenManager:
         self._screens: dict[str, Screen] = {
             "home": HomeScreen(self),
             "player_setup": PlayerSetupScreen(self),
+            "emoji_face_match": EmojiFaceMatchScreen(self),
             "mog_mirror": MogMirrorScreen(self),
             "sixty_seven": SixtySevenScreen(self),
             "score_reveal": ScoreRevealScreen(self),
