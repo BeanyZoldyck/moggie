@@ -4,8 +4,10 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.config import MoggieConfig
+from app.core.app_event import AppEvent
 from app.core.game_catalog import GAMES
 from app.services.camera_service import CameraService
+from app.services.cv_service import CVService
 from app.services.leaderboard_service import LeaderboardService
 
 
@@ -16,6 +18,9 @@ class Screen(Protocol):
         ...
 
     def handle_event(self, event: Any) -> None:
+        ...
+
+    def handle_app_event(self, event: AppEvent) -> None:
         ...
 
     def update(self, now_ms: int, dt_ms: int) -> None:
@@ -39,6 +44,7 @@ class ScreenManager:
         leaderboard_service: LeaderboardService,
         *,
         camera_service: CameraService | None = None,
+        cv_service: CVService | None = None,
         initial_screen: str = "home",
     ) -> None:
         from app.ui.screens.home_screen import HomeScreen
@@ -49,6 +55,7 @@ class ScreenManager:
         self.config = config
         self.leaderboard_service = leaderboard_service
         self.camera_service = camera_service
+        self.cv_service = cv_service
         self.state = ScreenState()
         self.should_quit = False
         self._screens: dict[str, Screen] = {
@@ -77,6 +84,11 @@ class ScreenManager:
 
     def handle_event(self, event: Any) -> None:
         self.active.handle_event(event)
+
+    def handle_app_event(self, event: AppEvent) -> None:
+        handler = getattr(self.active, "handle_app_event", None)
+        if handler is not None:
+            handler(event)
 
     def update(self, now_ms: int, dt_ms: int) -> None:
         self.active.update(now_ms, dt_ms)
