@@ -1,0 +1,191 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Mapping
+
+
+class ConfigError(ValueError):
+    """Raised when runtime configuration is invalid."""
+
+
+TRUE_VALUES = {"1", "true", "yes", "y", "on"}
+FALSE_VALUES = {"0", "false", "no", "n", "off"}
+ENVIRONMENTS = {"development", "production", "test"}
+GAME_MODES = {"versus", "solo", "alternating"}
+STORAGE_MODES = {"none", "local", "usb"}
+
+
+@dataclass(frozen=True)
+class MoggieConfig:
+    env: str
+    fullscreen: bool
+    window_width: int
+    window_height: int
+    placeholder_frames: int
+    db_path: Path
+    enable_redis_leaderboard_cache: bool
+    redis_url: str
+    redis_leaderboard_ttl_seconds: int
+    storage_mode: str
+    media_dir: Path
+    save_snapshots: bool
+    save_generated_media: bool
+    camera_index: int
+    camera_width: int
+    camera_height: int
+    cv_width: int
+    cv_height: int
+    cv_fps: int
+    default_game_mode: str
+    enable_fixed_half_zones: bool
+    zone_split_x: float
+    show_zone_divider: bool
+    allow_manual_start_override: bool
+    sixty_seven_mode: str
+    sixty_seven_max_hands: int
+    sixty_seven_round_seconds: int
+    sixty_seven_require_both_hands: bool
+    sixty_seven_min_confidence: float
+    sixty_seven_rep_cooldown_ms: int
+    emoji_mode: str
+    emoji_max_faces: int
+    emoji_round_seconds: int
+    emoji_enable_tongue_out: bool
+    emoji_use_cloud_validation: bool
+    enable_pika: bool
+    enable_overshoot: bool
+    enable_image_generation: bool
+    enable_midjourney: bool
+    midjourney_mcp_url: str
+    midjourney_token_store: Path
+    midjourney_client_id: str
+    midjourney_client_secret: str
+    enable_llm_labels: bool
+    enable_qnx_subsystem: bool
+    fal_key: str
+    pika_model: str
+    ai_timeout_seconds: int
+    ai_poll_interval_seconds: int
+
+    @property
+    def display_size(self) -> tuple[int, int]:
+        return self.window_width, self.window_height
+
+
+def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
+    env = environ or os.environ
+    app_env = _enum(env, "MOGGIE_ENV", "development", ENVIRONMENTS)
+    default_frames = 3 if app_env == "development" else 0
+
+    return MoggieConfig(
+        env=app_env,
+        fullscreen=_bool(env, "MOGGIE_FULLSCREEN", False),
+        window_width=_int(env, "MOGGIE_WINDOW_WIDTH", 1280, 320, 7680),
+        window_height=_int(env, "MOGGIE_WINDOW_HEIGHT", 720, 240, 4320),
+        placeholder_frames=_int(env, "MOGGIE_PLACEHOLDER_FRAMES", default_frames, 0, 1_000_000),
+        db_path=_path(env, "MOGGIE_DB_PATH", "./data/moggie.sqlite"),
+        enable_redis_leaderboard_cache=_bool(env, "MOGGIE_ENABLE_REDIS_LEADERBOARD_CACHE", True),
+        redis_url=_str(env, "MOGGIE_REDIS_URL", "redis://localhost:6379/0"),
+        redis_leaderboard_ttl_seconds=_int(env, "MOGGIE_REDIS_LEADERBOARD_TTL_SECONDS", 30, 1, 3600),
+        storage_mode=_enum(env, "MOGGIE_STORAGE_MODE", "none", STORAGE_MODES),
+        media_dir=_path(env, "MOGGIE_MEDIA_DIR", "./media"),
+        save_snapshots=_bool(env, "MOGGIE_SAVE_SNAPSHOTS", False),
+        save_generated_media=_bool(env, "MOGGIE_SAVE_GENERATED_MEDIA", False),
+        camera_index=_int(env, "MOGGIE_CAMERA_INDEX", 0, 0, 16),
+        camera_width=_int(env, "MOGGIE_CAMERA_WIDTH", 640, 160, 3840),
+        camera_height=_int(env, "MOGGIE_CAMERA_HEIGHT", 480, 120, 2160),
+        cv_width=_int(env, "MOGGIE_CV_WIDTH", 320, 80, 1920),
+        cv_height=_int(env, "MOGGIE_CV_HEIGHT", 240, 60, 1080),
+        cv_fps=_int(env, "MOGGIE_CV_FPS", 15, 1, 60),
+        default_game_mode=_enum(env, "MOGGIE_DEFAULT_GAME_MODE", "versus", GAME_MODES),
+        enable_fixed_half_zones=_bool(env, "MOGGIE_ENABLE_FIXED_HALF_ZONES", True),
+        zone_split_x=_float(env, "MOGGIE_ZONE_SPLIT_X", 0.5, 0.05, 0.95),
+        show_zone_divider=_bool(env, "MOGGIE_SHOW_ZONE_DIVIDER", True),
+        allow_manual_start_override=_bool(env, "MOGGIE_ALLOW_MANUAL_START_OVERRIDE", True),
+        sixty_seven_mode=_enum(env, "MOGGIE_67_MODE", "versus", GAME_MODES),
+        sixty_seven_max_hands=_int(env, "MOGGIE_67_MAX_HANDS", 4, 1, 4),
+        sixty_seven_round_seconds=_int(env, "MOGGIE_67_ROUND_SECONDS", 20, 5, 180),
+        sixty_seven_require_both_hands=_bool(env, "MOGGIE_67_REQUIRE_BOTH_HANDS", False),
+        sixty_seven_min_confidence=_float(env, "MOGGIE_67_MIN_CONFIDENCE", 0.55, 0.0, 1.0),
+        sixty_seven_rep_cooldown_ms=_int(env, "MOGGIE_67_REP_COOLDOWN_MS", 350, 0, 5000),
+        emoji_mode=_enum(env, "MOGGIE_EMOJI_MODE", "versus", GAME_MODES),
+        emoji_max_faces=_int(env, "MOGGIE_EMOJI_MAX_FACES", 2, 1, 2),
+        emoji_round_seconds=_int(env, "MOGGIE_EMOJI_ROUND_SECONDS", 30, 5, 180),
+        emoji_enable_tongue_out=_bool(env, "MOGGIE_EMOJI_ENABLE_TONGUE_OUT", False),
+        emoji_use_cloud_validation=_bool(env, "MOGGIE_EMOJI_USE_CLOUD_VALIDATION", False),
+        enable_pika=_bool(env, "MOGGIE_ENABLE_PIKA", False),
+        enable_overshoot=_bool(env, "MOGGIE_ENABLE_OVERSHOOT", False),
+        enable_image_generation=_bool(env, "MOGGIE_ENABLE_IMAGE_GENERATION", True),
+        enable_midjourney=_bool(env, "MOGGIE_ENABLE_MIDJOURNEY", True),
+        midjourney_mcp_url=_str(env, "MOGGIE_MIDJOURNEY_MCP_URL", "https://mcp.midjourney.com/mcp"),
+        midjourney_token_store=_path(
+            env,
+            "MOGGIE_MIDJOURNEY_TOKEN_STORE",
+            "~/.config/moggie/midjourney_oauth.json",
+            expand_user=True,
+        ),
+        midjourney_client_id=_str(env, "MOGGIE_MIDJOURNEY_CLIENT_ID", ""),
+        midjourney_client_secret=_str(env, "MOGGIE_MIDJOURNEY_CLIENT_SECRET", ""),
+        enable_llm_labels=_bool(env, "MOGGIE_ENABLE_LLM_LABELS", False),
+        enable_qnx_subsystem=_bool(env, "MOGGIE_ENABLE_QNX_SUBSYSTEM", False),
+        fal_key=_str(env, "FAL_KEY", ""),
+        pika_model=_str(env, "MOGGIE_PIKA_MODEL", "fal-ai/pika/v2/turbo/image-to-video"),
+        ai_timeout_seconds=_int(env, "MOGGIE_AI_TIMEOUT_SECONDS", 45, 1, 300),
+        ai_poll_interval_seconds=_int(env, "MOGGIE_AI_POLL_INTERVAL_SECONDS", 2, 1, 30),
+    )
+
+
+def _str(env: Mapping[str, str], key: str, default: str) -> str:
+    return env.get(key, default).strip()
+
+
+def _bool(env: Mapping[str, str], key: str, default: bool) -> bool:
+    raw = env.get(key)
+    if raw is None or raw == "":
+        return default
+    normalized = raw.strip().lower()
+    if normalized in TRUE_VALUES:
+        return True
+    if normalized in FALSE_VALUES:
+        return False
+    raise ConfigError(f"{key} must be a boolean value, got {raw!r}")
+
+
+def _int(env: Mapping[str, str], key: str, default: int, minimum: int, maximum: int) -> int:
+    raw = env.get(key)
+    if raw is None or raw == "":
+        value = default
+    else:
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ConfigError(f"{key} must be an integer, got {raw!r}") from exc
+    return max(minimum, min(maximum, value))
+
+
+def _float(env: Mapping[str, str], key: str, default: float, minimum: float, maximum: float) -> float:
+    raw = env.get(key)
+    if raw is None or raw == "":
+        value = default
+    else:
+        try:
+            value = float(raw)
+        except ValueError as exc:
+            raise ConfigError(f"{key} must be a number, got {raw!r}") from exc
+    return max(minimum, min(maximum, value))
+
+
+def _enum(env: Mapping[str, str], key: str, default: str, choices: set[str]) -> str:
+    value = env.get(key, default).strip().lower()
+    if value not in choices:
+        expected = ", ".join(sorted(choices))
+        raise ConfigError(f"{key} must be one of {expected}; got {value!r}")
+    return value
+
+
+def _path(env: Mapping[str, str], key: str, default: str, *, expand_user: bool = False) -> Path:
+    raw = env.get(key, default).strip()
+    path = Path(raw)
+    return path.expanduser() if expand_user else path

@@ -1,0 +1,13 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def monotonic_ms() -> int:
+    import time
+
+    return int(time.monotonic() * 1000)

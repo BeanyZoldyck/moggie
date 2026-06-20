@@ -1,0 +1,2 @@
+class HandLandmarkService:
+    pass

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moggie"
+version = "0.1.0"
+description = "Native Python Raspberry Pi kiosk party game."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pygame>=2.5",
+    "opencv-python>=4.9",
+    "mediapipe>=0.10",
+    "redis>=5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools]
+packages = {find = {include = ["app*"]}}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
