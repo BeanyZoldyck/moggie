@@ -12,6 +12,7 @@ from app.ai.base import (
     VideoGenerationClient,
     VisionValidationClient,
 )
+from app.ai.fal_pika_client import FalPikaClient
 from app.ai.mock_clients import (
     MockImageGenerationClient,
     MockTextGenerationClient,
@@ -60,7 +61,21 @@ class AIJobService:
 
     @classmethod
     def from_config(cls, config: MoggieConfig, *, event_bus: EventBus) -> "AIJobService":
-        return cls(event_bus=event_bus, timeout_seconds=config.ai_timeout_seconds)
+        video_client: VideoGenerationClient | None = None
+        if config.enable_pika and config.fal_key:
+            video_client = FalPikaClient(
+                api_key=config.fal_key,
+                model=config.pika_model,
+                timeout_seconds=config.ai_timeout_seconds,
+                poll_interval_seconds=config.ai_poll_interval_seconds,
+                on_status=lambda job_id, status, metadata: event_bus.publish(
+                    AppEvent.create(
+                        EVENT_AI_JOB_UPDATE,
+                        payload=ai_job_update_payload(job_id, status, **metadata),
+                    )
+                ),
+            )
+        return cls(event_bus=event_bus, video_client=video_client, timeout_seconds=config.ai_timeout_seconds)
 
     @property
     def is_running(self) -> bool:

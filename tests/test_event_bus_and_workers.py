@@ -11,6 +11,9 @@ from app.core.app_event import (
     normalized_point,
 )
 from app.core.event_bus import EventBus
+from app.ai.fal_pika_client import FalPikaClient
+from app.ai.mock_clients import MockVideoGenerationClient
+from app.config import load_config
 from app.services.ai_job_service import AIJobService
 from app.services.cv_service import CVService
 
@@ -154,6 +157,24 @@ class EventBusAndWorkerTests(unittest.TestCase):
         self.assertEqual(result["provider"], "mock")
         self.assertEqual(result["kind"], "image")
         self.assertEqual(result["uri"], "mock://image/Ada")
+
+    def test_ai_job_service_uses_fal_pika_client_only_when_enabled_and_configured(self) -> None:
+        bus = EventBus()
+        configured = AIJobService.from_config(
+            load_config(
+                {
+                    "MOGGIE_ENABLE_PIKA": "true",
+                    "FAL_KEY": "test-key",
+                    "MOGGIE_PIKA_MODEL": "fal-ai/pika/v2.2/image-to-video",
+                }
+            ),
+            event_bus=bus,
+        )
+        fallback = AIJobService.from_config(load_config({"MOGGIE_ENABLE_PIKA": "true"}), event_bus=bus)
+
+        self.assertIsInstance(configured.video_client, FalPikaClient)
+        self.assertEqual(configured.video_client.model, "fal-ai/pika/v2.2/image-to-video")
+        self.assertIsInstance(fallback.video_client, MockVideoGenerationClient)
 
     def _drain_until(
         self,
