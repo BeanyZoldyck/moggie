@@ -59,7 +59,6 @@ class MoggieConfig:
     emoji_enable_tongue_out: bool
     emoji_use_cloud_validation: bool
     enable_pika: bool
-    enable_overshoot: bool
     enable_image_generation: bool
     enable_midjourney: bool
     midjourney_mcp_url: str
@@ -123,7 +122,6 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         emoji_enable_tongue_out=_bool(env, "MOGGIE_EMOJI_ENABLE_TONGUE_OUT", False),
         emoji_use_cloud_validation=_bool(env, "MOGGIE_EMOJI_USE_CLOUD_VALIDATION", False),
         enable_pika=_bool(env, "MOGGIE_ENABLE_PIKA", False),
-        enable_overshoot=_bool(env, "MOGGIE_ENABLE_OVERSHOOT", False),
         enable_image_generation=_bool(env, "MOGGIE_ENABLE_IMAGE_GENERATION", True),
         enable_midjourney=_bool(env, "MOGGIE_ENABLE_MIDJOURNEY", True),
         midjourney_mcp_url=_str(env, "MOGGIE_MIDJOURNEY_MCP_URL", "https://mcp.midjourney.com/mcp"),

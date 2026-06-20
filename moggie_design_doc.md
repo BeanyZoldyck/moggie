@@ -292,7 +292,6 @@ The project is aimed at the hackathon's playful/experimental game-oriented track
 
 Sponsor technologies of interest include:
 
-- Overshoot;
 - Pika;
 - Midjourney pre-release MCP server for image generation;
 - Anthropic or equivalent LLM;
@@ -301,8 +300,6 @@ Sponsor technologies of interest include:
 - QNX if possible
 
 Pika should be integrated if possible -- We can feed short clips into the model and tell it to generate funny "replays" of the round.
-
-Overshoot should be integrated if available.
 
 ---
 
@@ -329,21 +326,7 @@ Possible integration levels:
 
 Do not make QNX required for playing the games.
 
-### 4.2 Overshoot
-
-Overshoot should be used for real-time or semantic vision if its APIs are accessible during the hackathon.
-
-Likely use cases:
-
-- classify whether a player made a requested emoji expression;
-- explain what is happening in the scene;
-- provide "AI judge" commentary;
-- validate snapshots after local CV scoring;
-- create sponsor-facing demo mode.
-
-Do not rely on Overshoot for low-latency 67 rep counting. That should be local.
-
-### 4.3 Pika
+### 4.2 Pika
 
 Pika should be used for generated video/media payoff.
 
@@ -529,7 +512,7 @@ As a sponsor judge, I want to see how sponsor products were used.
 Acceptance criteria:
 
 - Pika is used or clearly planned for generated video payoff.
-- Overshoot or similar semantic vision is used or integrated behind an interface.
+- Emoji expression validation has local fallbacks and can accept a future cloud validator behind a feature flag.
 - QNX is framed as embedded/control-plane architecture or demonstrated as a stretch subsystem.
 - Sponsor dependencies have fallbacks.
 
@@ -617,7 +600,6 @@ Moggie runs as a native local game shell on Raspberry Pi OS 64-bit Lite.
 |                                                            |
 | - Pika: generated video/media                              |
 | - Midjourney MCP: caricature images                        |
-| - Overshoot or equivalent: semantic vision validation      |
 | - LLM provider: labels, narration, loading text            |
 +------------------------------------------------------------+
 ```
@@ -642,7 +624,7 @@ Recommended runtime model:
 
 3. **AI job worker**
    - Runs in a thread, process, or async task queue.
-   - Handles outbound local/internalS calls to Pika, Overshoot, image-generation services, and LLM providers.
+   - Handles outbound local/internalS calls to Pika, image-generation services, and LLM providers.
    - Publishes job status events.
    - Prevents cloud latency from blocking the game loop.
 
@@ -708,7 +690,7 @@ Examples:
 - no internet: local games still work;
 - Pika failure: show static score screen;
 - caricature failure: show original snapshot and aura score;
-- Overshoot failure: use local expression heuristic;
+- cloud expression validation unavailable: use local expression heuristic;
 - camera missing: show clear diagnostic;
 - low CV confidence: show reposition instructions;
 - SQLite write failure: show score but warn leaderboard unavailable.
@@ -1180,7 +1162,6 @@ MOGGIE_EMOJI_MAX_FACES=1
 
 # Disable expensive/cloud features
 MOGGIE_ENABLE_PIKA=false
-MOGGIE_ENABLE_OVERSHOOT=false
 MOGGIE_EMOJI_USE_CLOUD_VALIDATION=false
 ```
 
@@ -1263,7 +1244,6 @@ MOGGIE_EMOJI_ENABLE_TONGUE_OUT=false
 MOGGIE_EMOJI_USE_CLOUD_VALIDATION=false
 
 MOGGIE_ENABLE_PIKA=false
-MOGGIE_ENABLE_OVERSHOOT=false
 MOGGIE_ENABLE_IMAGE_GENERATION=true
 MOGGIE_ENABLE_MIDJOURNEY=true
 MOGGIE_MIDJOURNEY_MCP_URL=https://mcp.midjourney.com/mcp
@@ -1980,7 +1960,6 @@ moggie/
       base.py
       mock_clients.py
       pika_client.py
-      overshoot_client.py
       image_generation_client.py
       text_generation_client.py
     util/
@@ -2258,7 +2237,6 @@ Recommended development split:
 
 4. Shared integration/polish:
    - Pika;
-   - Overshoot;
    - QNX story;
    - UI polish;
    - demo script.
@@ -2290,7 +2268,6 @@ Implement in this order:
     - Midjourney MCP;
     - Pika;
     - image generation;
-    - Overshoot;
     - LLM labels.
 16. QNX stretch subsystem or sponsor-facing architecture notes.
 17. Idle/attract mode and visual polish.
@@ -2379,7 +2356,7 @@ Unavailable or degraded:
 
 - Pika clips;
 - AI caricatures;
-- Overshoot validation;
+- cloud expression validation;
 - LLM labels unless cached/fallback labels are used.
 
 ### 16.2 No Camera
@@ -2503,7 +2480,7 @@ Prioritize:
 3. persistent leaderboards;
 4. Mog Mirror fallback scoring;
 5. Emoji Face Match basic expression scoring;
-6. Pika/Overshoot/AI sponsor polish;
+6. Pika/AI sponsor polish;
 7. QNX stretch story or subsystem.
 
 Use simple abstractions. Avoid overengineering. The final demo should be resilient, funny, and easy to explain.
