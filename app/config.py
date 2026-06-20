@@ -77,14 +77,13 @@ class MoggieConfig:
 def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
     env = environ or os.environ
     app_env = _enum(env, "MOGGIE_ENV", "development", ENVIRONMENTS)
-    default_frames = 3 if app_env == "development" else 0
 
     return MoggieConfig(
         env=app_env,
         fullscreen=_bool(env, "MOGGIE_FULLSCREEN", False),
         window_width=_int(env, "MOGGIE_WINDOW_WIDTH", 1280, 320, 7680),
         window_height=_int(env, "MOGGIE_WINDOW_HEIGHT", 720, 240, 4320),
-        placeholder_frames=_int(env, "MOGGIE_PLACEHOLDER_FRAMES", default_frames, 0, 1_000_000),
+        placeholder_frames=_int(env, "MOGGIE_PLACEHOLDER_FRAMES", 0, 0, 1_000_000),
         db_path=_path(env, "MOGGIE_DB_PATH", "./data/moggie.sqlite"),
         enable_redis_leaderboard_cache=_bool(env, "MOGGIE_ENABLE_REDIS_LEADERBOARD_CACHE", True),
         redis_url=_str(env, "MOGGIE_REDIS_URL", "redis://localhost:6379/0"),
