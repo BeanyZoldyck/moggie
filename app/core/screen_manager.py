@@ -51,6 +51,7 @@ class ScreenManager:
     ) -> None:
         from app.ui.screens.home_screen import HomeScreen
         from app.ui.screens.emoji_face_match_screen import EmojiFaceMatchScreen
+        from app.ui.screens.idle_attract_screen import IdleAttractScreen
         from app.ui.screens.leaderboard_screen import LeaderboardScreen
         from app.ui.screens.mog_mirror_screen import MogMirrorScreen
         from app.ui.screens.player_setup_screen import PlayerSetupScreen
@@ -64,8 +65,10 @@ class ScreenManager:
         self.ai_job_service = ai_job_service
         self.state = ScreenState()
         self.should_quit = False
+        self.last_input_ms = 0
         self._screens: dict[str, Screen] = {
             "home": HomeScreen(self),
+            "idle_attract": IdleAttractScreen(self),
             "player_setup": PlayerSetupScreen(self),
             "emoji_face_match": EmojiFaceMatchScreen(self),
             "mog_mirror": MogMirrorScreen(self),
@@ -92,6 +95,7 @@ class ScreenManager:
         self.should_quit = True
 
     def handle_event(self, event: Any) -> None:
+        self.last_input_ms = self._event_ticks()
         self.active.handle_event(event)
 
     def handle_app_event(self, event: AppEvent) -> None:
@@ -100,7 +104,27 @@ class ScreenManager:
             handler(event)
 
     def update(self, now_ms: int, dt_ms: int) -> None:
+        if self.last_input_ms == 0:
+            self.last_input_ms = now_ms
+        if (
+            self.config.idle_attract_enabled
+            and self.current_screen == "home"
+            and now_ms - self.last_input_ms >= self.config.idle_timeout_seconds * 1000
+        ):
+            self.go_to("idle_attract")
         self.active.update(now_ms, dt_ms)
 
     def render(self, surface: Any) -> None:
         self.active.render(surface)
+
+    def wake_to_home(self) -> None:
+        self.last_input_ms = self._event_ticks()
+        self.go_to("home")
+
+    def _event_ticks(self) -> int:
+        try:
+            import pygame
+
+            return pygame.time.get_ticks()
+        except Exception:
+            return 0

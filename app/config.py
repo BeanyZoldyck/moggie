@@ -35,9 +35,13 @@ class MoggieConfig:
     camera_index: int
     camera_width: int
     camera_height: int
+    camera_retry_seconds: int
     cv_width: int
     cv_height: int
     cv_fps: int
+    idle_attract_enabled: bool
+    idle_timeout_seconds: int
+    attract_rotation_seconds: int
     default_game_mode: str
     enable_fixed_half_zones: bool
     zone_split_x: float
@@ -95,9 +99,13 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         camera_index=_int(env, "MOGGIE_CAMERA_INDEX", 0, 0, 16),
         camera_width=_int(env, "MOGGIE_CAMERA_WIDTH", 640, 160, 3840),
         camera_height=_int(env, "MOGGIE_CAMERA_HEIGHT", 480, 120, 2160),
+        camera_retry_seconds=_int(env, "MOGGIE_CAMERA_RETRY_SECONDS", 3, 1, 60),
         cv_width=_int(env, "MOGGIE_CV_WIDTH", 320, 80, 1920),
         cv_height=_int(env, "MOGGIE_CV_HEIGHT", 240, 60, 1080),
         cv_fps=_int(env, "MOGGIE_CV_FPS", 15, 1, 60),
+        idle_attract_enabled=_bool(env, "MOGGIE_IDLE_ATTRACT_ENABLED", True),
+        idle_timeout_seconds=_int(env, "MOGGIE_IDLE_TIMEOUT_SECONDS", 90, 5, 3600),
+        attract_rotation_seconds=_int(env, "MOGGIE_ATTRACT_ROTATION_SECONDS", 8, 2, 120),
         default_game_mode=_enum(env, "MOGGIE_DEFAULT_GAME_MODE", "versus", GAME_MODES),
         enable_fixed_half_zones=_bool(env, "MOGGIE_ENABLE_FIXED_HALF_ZONES", True),
         zone_split_x=_float(env, "MOGGIE_ZONE_SPLIT_X", 0.5, 0.05, 0.95),

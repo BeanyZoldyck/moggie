@@ -13,6 +13,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.display_size, (1280, 720))
         self.assertEqual(config.zone_split_x, 0.5)
         self.assertEqual(config.sixty_seven_max_hands, 4)
+        self.assertEqual(config.camera_retry_seconds, 3)
+        self.assertTrue(config.idle_attract_enabled)
+        self.assertEqual(config.idle_timeout_seconds, 90)
+        self.assertEqual(config.attract_rotation_seconds, 8)
 
     def test_invalid_enum_fails_fast(self) -> None:
         with self.assertRaises(ConfigError):

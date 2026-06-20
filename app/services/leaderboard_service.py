@@ -255,6 +255,30 @@ class LeaderboardService:
         self._set_cache(cache_key, entries)
         return entries
 
+    def recent_media_assets(self, limit: int = 6) -> list[dict[str, Any]]:
+        limit = max(1, min(50, limit))
+        with connect(self.db_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    media_assets.kind,
+                    media_assets.storage_mode,
+                    media_assets.uri,
+                    media_assets.created_at,
+                    game_sessions.game_type,
+                    players.display_name
+                FROM media_assets
+                LEFT JOIN game_sessions ON media_assets.session_id = game_sessions.id
+                LEFT JOIN players ON media_assets.player_id = players.id
+                WHERE media_assets.uri IS NOT NULL
+                  AND media_assets.uri != ''
+                ORDER BY media_assets.created_at DESC, media_assets.id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [dict(row) for row in rows]
+
     def rank_for_score(self, score_id: str) -> int:
         with connect(self.db_path) as connection:
             row = connection.execute(

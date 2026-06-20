@@ -9,4 +9,5 @@ sudo apt-get install -y \
   python3-opencv \
   python3-pygame \
   libsdl2-2.0-0 \
+  v4l-utils \
   redis-server
