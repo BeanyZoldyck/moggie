@@ -4,8 +4,11 @@ import logging
 from typing import Any
 
 from app.config import MoggieConfig
+from app.core.event_bus import EventBus
 from app.core.screen_manager import ScreenManager
+from app.services.ai_job_service import AIJobService
 from app.services.camera_service import CameraService
+from app.services.cv_service import CVService
 from app.services.leaderboard_service import LeaderboardService
 
 LOGGER = logging.getLogger(__name__)
@@ -22,9 +25,21 @@ class MoggieApp:
 
     def __init__(self, config: MoggieConfig) -> None:
         self.config = config
+        self.event_bus = EventBus()
         self.leaderboard_service = LeaderboardService.from_config(config)
         self.camera_service = CameraService.from_config(config)
-        self.screen_manager = ScreenManager(config, self.leaderboard_service, camera_service=self.camera_service)
+        self.cv_service = CVService.from_config(
+            config,
+            event_bus=self.event_bus,
+            camera_service=self.camera_service,
+        )
+        self.ai_job_service = AIJobService(event_bus=self.event_bus)
+        self.screen_manager = ScreenManager(
+            config,
+            self.leaderboard_service,
+            camera_service=self.camera_service,
+            cv_service=self.cv_service,
+        )
         self.running = False
 
     def run(self, frames: int | None = None) -> None:
@@ -48,9 +63,14 @@ class MoggieApp:
 
         try:
             self.camera_service.start()
+            self.cv_service.start()
+            self.ai_job_service.start()
             while self.running and (max_frames == 0 or frame_count < max_frames):
                 dt_ms = clock.tick(self.target_fps)
                 self.camera_service.poll()
+                for app_event in self.event_bus.drain():
+                    self.cv_service.record_event(app_event)
+                    self.screen_manager.handle_app_event(app_event)
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
@@ -69,6 +89,8 @@ class MoggieApp:
                     self.running = False
                 frame_count += 1
         finally:
+            self.ai_job_service.stop()
+            self.cv_service.stop()
             self.camera_service.stop()
             pygame.quit()
             LOGGER.info("Moggie app exited after %s frame(s)", frame_count)
