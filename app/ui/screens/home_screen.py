@@ -14,6 +14,7 @@ from app.ui.render_utils import (
     draw_text,
     draw_wrapped_text,
 )
+from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 
 
 def _pygame() -> Any:
@@ -30,6 +31,7 @@ class HomeScreen:
         self.game_index = 0
         self.action_index = 0
         self.fonts: FontSet | None = None
+        self.preview_renderer = CameraPreviewRenderer()
 
     def on_enter(self, **_: Any) -> None:
         self.game_index = game_index(self.manager.state.selected_game_type)
@@ -68,7 +70,8 @@ class HomeScreen:
         card_margin = 48
         card_gap = 18
         card_y = 168
-        card_h = min(318, max(250, height - 392))
+        preview_h = min(164, max(118, height // 5))
+        card_h = min(276, max(218, height - preview_h - 392))
         card_w = (width - card_margin * 2 - card_gap * 2) // 3
         for index, game in enumerate(GAMES):
             rect = pygame.Rect(card_margin + index * (card_w + card_gap), card_y, card_w, card_h)
@@ -111,6 +114,30 @@ class HomeScreen:
             )
 
         active_game = GAMES[self.game_index]
+        preview_rect = pygame.Rect(48, min(height - preview_h - 64, card_y + card_h + 24), min(430, width - 96), preview_h)
+        camera_service = self.manager.camera_service
+        frame = camera_service.latest_display_frame() if camera_service is not None else None
+        diagnostic = (
+            camera_service.diagnostic_message
+            if camera_service is not None
+            else f"Camera index {self.manager.config.camera_index} is not configured."
+        )
+        self.preview_renderer.render(
+            surface,
+            preview_rect,
+            frame_bgr=frame,
+            diagnostic=diagnostic,
+            show_divider=self.manager.config.show_zone_divider,
+        )
+        draw_text(surface, "LIVE CAMERA", fonts.small, theme.TEXT_MUTED, (preview_rect.right + 18, preview_rect.top + 6))
+        draw_text(
+            surface,
+            f"INDEX {self.manager.config.camera_index}",
+            fonts.mono,
+            theme.ACCENT if frame is not None else theme.ERROR,
+            (preview_rect.right + 18, preview_rect.top + 34),
+        )
+
         button_w = 212
         button_h = 58
         buttons_y = height - 126
