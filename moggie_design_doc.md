@@ -1,10 +1,10 @@
-# Moggi Design Document
+# Moggie Design Document
 
 ## 0. Purpose of This Document
 
-This document is the source-of-truth design brief for **Moggi**, a Berkeley AI Hackathon project. It is written so an LLM coding agent can read it from scratch and produce a concrete technical specification, repository structure, implementation plan, task breakdown, and code scaffolding without asking follow-up questions.
+This document is the source-of-truth design brief for **Moggie**, a Berkeley AI Hackathon project. Use this document to generate concrete technical specification, repository structure, implementation plan, task breakdown, and code scaffolding.
 
-If a detail is not explicitly specified, the implementation agent should use the defaults and priorities in this document rather than blocking on clarification. The project is a hackathon build: prioritize speed, demo reliability, and visible polish over production-grade complexity.
+If a detail is not explicitly specified, the implementation agent should prefer presenting options and asking for human verification rather than making assumptions and silently moving forward. The project is a hackathon build: prioritize speed, demo reliability, and visible polish over production-grade complexity. Remember to document all decisions and design choices for visibility and to keep the entire 4-person team on the same page.
 
 ---
 
@@ -12,17 +12,17 @@ If a detail is not explicitly specified, the implementation agent should use the
 
 ### 1.1 Project Name
 
-**Moggi**
+**Moggie**
 
-The name comes from "mogging," but the project should be framed around comedic "aura," "mog energy," and social party-game mechanics rather than serious attractiveness scoring.
+The name comes from "mogging," but the project should be a party game framed around comedic "aura," "mog energy," and social mechanics.
 
 ### 1.2 One-Sentence Description
 
-Moggi is a Raspberry Pi OS Lite-powered AI party-game kiosk where players choose camera-based mini-games, compete using face/hand/expression computer vision, and get funny AI-generated scores, leaderboards, and media outputs.
+Moggie is a Raspberry Pi OS Lite-powered AI party-game kiosk where players choose camera-based mini-games, compete using face/hand/expression computer vision, and get funny AI-generated scores, leaderboards, and media outputs.
 
 ### 1.3 Longer Product Description
 
-Moggi is a single kiosk application, similar in spirit to a Jackbox-style party-game hub. It runs on a Raspberry Pi 4 connected to a USB webcam, HDMI display, and keyboard. Players walk up to the booth, enter their names, select a game, stand in front of the camera, and play short computer-vision/AI-driven games.
+Moggie is a single kiosk application, similar in spirit to a Jackbox-style party-game hub. It runs on a Raspberry Pi 4 connected to a USB webcam, HDMI display, and keyboard. Players walk up to the booth, enter their names, select a game, stand in front of the camera, and play short computer-vision/AI-driven games.
 
 The first version supports three mini-games. The product should be designed as a **1v1 party-game kiosk by default**, with fixed left/right player zones and feature flags that allow rapid rollback to solo or alternating-turn modes if Raspberry Pi performance or CV reliability is insufficient.
 
@@ -32,7 +32,8 @@ The first version supports three mini-games. The product should be designed as a
    - It captures each player's face or full upper-body crop.
    - It generates a caricature or stylized AI image if cloud generation is available.
    - It assigns each player a comedic "aura score" out of 100.
-   - It displays a winner and stores scores in a leaderboard.
+   - It displays a winner and stores top 5 scores in a leaderboard.
+    - If the user scores in the top 5, it should prompt them for a nickname, and store their name and score in the SQLite database.
 
 2. **67 Challenge**
    - Two players stand side-by-side, Player 1 in the left half and Player 2 in the right half.
@@ -41,7 +42,7 @@ The first version supports three mini-games. The product should be designed as a
    - It assigns detected hands to the left or right player zone based on normalized x-coordinate.
    - It displays a live green hand-landmark overlay for both players.
    - It counts approximate valid reps independently for each player.
-   - It stores both final scores in the leaderboard.
+   - It stores both final scores in the leaderboard. Again, top 5 scores should be stored. 
    - If four-hand tracking is too slow or noisy, a config flag can revert the game to solo mode.
 
 3. **Emoji Face Match**
@@ -53,7 +54,7 @@ The first version supports three mini-games. The product should be designed as a
    - It scores hits/misses for each player and stores both final scores in the leaderboard.
    - If two-face expression scoring is unreliable, a config flag can revert to alternating-turn or solo mode.
 
-The project should feel viral, funny, competitive, and immediately understandable at a hackathon booth. The technical story should emphasize embedded AI, local real-time CV, cloud AI media generation, sponsor integrations, and a robust feature-flag strategy for rapid demo rollback.
+The project should feel viral, funny, competitive, and immediately understandable at a hackathon booth. The technical story should emphasize embedded AI, local real-time CV, sponsor integrations, and a robust feature-flag strategy for rapid demo rollback.
 
 ---
 
@@ -61,7 +62,7 @@ The project should feel viral, funny, competitive, and immediately understandabl
 
 ### 2.1 Primary Goals
 
-Moggi should optimize for:
+Moggie should optimize for:
 
 1. **Polished booth demo**
    - The app should look like a coherent kiosk product.
@@ -83,6 +84,7 @@ Moggi should optimize for:
    - Do not reinvent CV models.
    - Use existing libraries and APIs.
    - Prefer simple, stable architecture over elaborate production design.
+   - Basically, reuse existing technology as much as possible.
 
 5. **Demo resilience**
    - Core gameplay should not depend on cloud APIs.
@@ -114,13 +116,13 @@ The following decisions are already made and should be treated as fixed unless i
 
 ### 3.1 App Form Factor
 
-Moggi is a **single kiosk app** where users choose one of three games from a home screen.
+Moggie is a **single kiosk app** where users choose one of three games from a home screen.
 
 It is not three separate demos.
 
 ### 3.1.1 Primary Multiplayer Model
 
-Moggi should be implemented as a **1v1 kiosk by default**.
+Moggie should be implemented as a **1v1 kiosk by default**.
 
 Default player layout:
 
@@ -160,7 +162,7 @@ Default implementation target:
 - **Raspberry Pi OS 64-bit Lite.**
 - Do **not** use the standard desktop image for the primary demo build.
 - Do **not** run Chromium, a desktop browser, X11 desktop session, Wayland desktop session, or full desktop environment for the MVP.
-- The Pi should boot directly into the Moggi game shell using a `systemd` service.
+- The Pi should boot directly into the Moggie game shell using a `systemd` service.
 - The game shell should render directly to the HDMI display through a lightweight native Python UI stack, preferably **Pygame / SDL2**.
 
 Low-effort performance guidance:
@@ -179,10 +181,10 @@ Primary boot/runtime model:
 ```text
 Power on Pi
   -> Raspberry Pi OS 64-bit Lite
-  -> systemd starts moggi.service
+  -> systemd starts moggie.service
   -> Python app initializes config/db/camera/CV/UI
   -> Pygame/SDL2 opens fullscreen HDMI surface
-  -> Moggi home screen appears directly
+  -> Moggie home screen appears directly
 ```
 
 QNX should be treated as:
@@ -290,22 +292,22 @@ The project is aimed at the hackathon's playful/experimental game-oriented track
 
 Sponsor technologies of interest include:
 
-- QNX;
 - Overshoot;
 - Pika;
 - Midjourney or equivalent image generation;
 - Anthropic or equivalent LLM;
 - Redis, Sentry, Runpod, Arize, Deepgram, or others if useful.
+- QNX if possible
 
-Pika should be integrated if possible.
+Pika should be integrated if possible -- We can feed short clips into the model and tell it to generate funny "replays" of the round.
 
-Overshoot should be researched and integrated if available, but the MVP should not depend on it.
+Overshoot should be integrated if available.
 
 ---
 
 ## 4. Sponsor Integration Strategy
 
-### 4.1 QNX
+### 4.1 QNX - OPTIONAL STRETCH GOAL
 
 QNX should be presented as an embedded real-time systems angle.
 
@@ -524,13 +526,13 @@ Acceptance criteria:
 
 ### 6.1 High-Level Architecture
 
-Moggi runs as a native local game shell on Raspberry Pi OS 64-bit Lite.
+Moggie runs as a native local game shell on Raspberry Pi OS 64-bit Lite.
 
 ```text
 +------------------------------------------------------------+
 | HDMI Display                                                |
 |                                                            |
-| Native Fullscreen Moggi Game Shell                         |
+| Native Fullscreen Moggie Game Shell                         |
 | Python + Pygame / SDL2                                     |
 | - Home screen                                              |
 | - Player setup                                             |
@@ -585,7 +587,7 @@ Moggi runs as a native local game shell on Raspberry Pi OS 64-bit Lite.
 
 Recommended runtime model:
 
-1. **Moggi native game process**
+1. **Moggie native game process**
    - Main Python process.
    - Starts from `systemd` on boot.
    - Opens a fullscreen Pygame/SDL2 window on HDMI.
@@ -783,10 +785,10 @@ Fallback:
 Configuration:
 
 ```bash
-MOGGI_67_MODE=versus        # versus | solo
-MOGGI_67_MAX_HANDS=4        # 4 for 1v1; 2 for solo/fallback
-MOGGI_67_ROUND_SECONDS=20
-MOGGI_67_REQUIRE_BOTH_HANDS=false
+MOGGIE_67_MODE=versus        # versus | solo
+MOGGIE_67_MAX_HANDS=4        # 4 for 1v1; 2 for solo/fallback
+MOGGIE_67_ROUND_SECONDS=20
+MOGGIE_67_REQUIRE_BOTH_HANDS=false
 ```
 
 ### 7.2.3 Fixed Half Zones
@@ -828,7 +830,7 @@ Home
   -> show leaderboard
 ```
 
-Solo fallback flow is the same but asks for one name, uses `MOGGI_67_MAX_HANDS=2`, and only renders one score panel.
+Solo fallback flow is the same but asks for one name, uses `MOGGIE_67_MAX_HANDS=2`, and only renders one score panel.
 
 ### 7.2.5 Performance Target
 
@@ -957,11 +959,11 @@ Fallbacks:
 Configuration:
 
 ```bash
-MOGGI_EMOJI_MODE=versus             # versus | alternating | solo
-MOGGI_EMOJI_MAX_FACES=2             # 2 for versus; 1 for solo/fallback
-MOGGI_EMOJI_ENABLE_TONGUE_OUT=false # tongue-out is harder; enable only if validation works
-MOGGI_EMOJI_USE_CLOUD_VALIDATION=false
-MOGGI_EMOJI_ROUND_SECONDS=30
+MOGGIE_EMOJI_MODE=versus             # versus | alternating | solo
+MOGGIE_EMOJI_MAX_FACES=2             # 2 for versus; 1 for solo/fallback
+MOGGIE_EMOJI_ENABLE_TONGUE_OUT=false # tongue-out is harder; enable only if validation works
+MOGGIE_EMOJI_USE_CLOUD_VALIDATION=false
+MOGGIE_EMOJI_ROUND_SECONDS=30
 ```
 
 ### 7.3.3 Fixed Half Zones
@@ -1072,14 +1074,14 @@ If cloud validation is too slow, local heuristic result should be shown immediat
 All simultaneous 1v1 games should use the same zone assignment rule:
 
 ```text
-P1 zone: normalized x < MOGGI_ZONE_SPLIT_X
-P2 zone: normalized x >= MOGGI_ZONE_SPLIT_X
+P1 zone: normalized x < MOGGIE_ZONE_SPLIT_X
+P2 zone: normalized x >= MOGGIE_ZONE_SPLIT_X
 ```
 
 Default:
 
 ```bash
-MOGGI_ZONE_SPLIT_X=0.5
+MOGGIE_ZONE_SPLIT_X=0.5
 ```
 
 This applies to:
@@ -1127,20 +1129,20 @@ Rollback examples:
 
 ```bash
 # Make all games safer for demo
-MOGGI_DEFAULT_GAME_MODE=solo
+MOGGIE_DEFAULT_GAME_MODE=solo
 
 # Keep Mog Mirror 1v1, but make 67 solo
-MOGGI_67_MODE=solo
-MOGGI_67_MAX_HANDS=2
+MOGGIE_67_MODE=solo
+MOGGIE_67_MAX_HANDS=2
 
 # Keep Emoji Face Match two-player but alternate turns
-MOGGI_EMOJI_MODE=alternating
-MOGGI_EMOJI_MAX_FACES=1
+MOGGIE_EMOJI_MODE=alternating
+MOGGIE_EMOJI_MAX_FACES=1
 
 # Disable expensive/cloud features
-MOGGI_ENABLE_PIKA=false
-MOGGI_ENABLE_OVERSHOOT=false
-MOGGI_EMOJI_USE_CLOUD_VALIDATION=false
+MOGGIE_ENABLE_PIKA=false
+MOGGIE_ENABLE_OVERSHOOT=false
+MOGGIE_EMOJI_USE_CLOUD_VALIDATION=false
 ```
 
 Implementation agents should treat these flags as first-class product requirements, not optional polish.
@@ -1167,52 +1169,52 @@ Do not persist raw images/videos by default.
 Suggested environment variables:
 
 ```bash
-MOGGI_ENV=development
+MOGGIE_ENV=development
 
-MOGGI_HOST=127.0.0.1
-MOGGI_PORT=8000
+MOGGIE_HOST=127.0.0.1
+MOGGIE_PORT=8000
 
-MOGGI_DB_PATH=./data/moggi.sqlite
+MOGGIE_DB_PATH=./data/moggie.sqlite
 
-MOGGI_STORAGE_MODE=none
-MOGGI_MEDIA_DIR=./media
-MOGGI_SAVE_SNAPSHOTS=false
-MOGGI_SAVE_GENERATED_MEDIA=false
+MOGGIE_STORAGE_MODE=none
+MOGGIE_MEDIA_DIR=./media
+MOGGIE_SAVE_SNAPSHOTS=false
+MOGGIE_SAVE_GENERATED_MEDIA=false
 
-MOGGI_CAMERA_INDEX=0
-MOGGI_CAMERA_WIDTH=640
-MOGGI_CAMERA_HEIGHT=480
-MOGGI_CV_WIDTH=320
-MOGGI_CV_HEIGHT=240
-MOGGI_CV_FPS=15
+MOGGIE_CAMERA_INDEX=0
+MOGGIE_CAMERA_WIDTH=640
+MOGGIE_CAMERA_HEIGHT=480
+MOGGIE_CV_WIDTH=320
+MOGGIE_CV_HEIGHT=240
+MOGGIE_CV_FPS=15
 
 # Global 1v1 / rollback controls
-MOGGI_DEFAULT_GAME_MODE=versus          # versus | alternating | solo
-MOGGI_ENABLE_FIXED_HALF_ZONES=true
-MOGGI_ZONE_SPLIT_X=0.5
-MOGGI_SHOW_ZONE_DIVIDER=true
-MOGGI_ALLOW_MANUAL_START_OVERRIDE=true
+MOGGIE_DEFAULT_GAME_MODE=versus          # versus | alternating | solo
+MOGGIE_ENABLE_FIXED_HALF_ZONES=true
+MOGGIE_ZONE_SPLIT_X=0.5
+MOGGIE_SHOW_ZONE_DIVIDER=true
+MOGGIE_ALLOW_MANUAL_START_OVERRIDE=true
 
 # 67 Challenge controls
-MOGGI_67_MODE=versus                   # versus | solo
-MOGGI_67_MAX_HANDS=4                   # 4 for 1v1, 2 for solo
-MOGGI_67_ROUND_SECONDS=20
-MOGGI_67_REQUIRE_BOTH_HANDS=false
-MOGGI_67_MIN_CONFIDENCE=0.55
-MOGGI_67_REP_COOLDOWN_MS=350
+MOGGIE_67_MODE=versus                   # versus | solo
+MOGGIE_67_MAX_HANDS=4                   # 4 for 1v1, 2 for solo
+MOGGIE_67_ROUND_SECONDS=20
+MOGGIE_67_REQUIRE_BOTH_HANDS=false
+MOGGIE_67_MIN_CONFIDENCE=0.55
+MOGGIE_67_REP_COOLDOWN_MS=350
 
 # Emoji Face Match controls
-MOGGI_EMOJI_MODE=versus                # versus | alternating | solo
-MOGGI_EMOJI_MAX_FACES=2
-MOGGI_EMOJI_ROUND_SECONDS=30
-MOGGI_EMOJI_ENABLE_TONGUE_OUT=false
-MOGGI_EMOJI_USE_CLOUD_VALIDATION=false
+MOGGIE_EMOJI_MODE=versus                # versus | alternating | solo
+MOGGIE_EMOJI_MAX_FACES=2
+MOGGIE_EMOJI_ROUND_SECONDS=30
+MOGGIE_EMOJI_ENABLE_TONGUE_OUT=false
+MOGGIE_EMOJI_USE_CLOUD_VALIDATION=false
 
-MOGGI_ENABLE_PIKA=false
-MOGGI_ENABLE_OVERSHOOT=false
-MOGGI_ENABLE_IMAGE_GENERATION=false
-MOGGI_ENABLE_LLM_LABELS=false
-MOGGI_ENABLE_QNX_SUBSYSTEM=false
+MOGGIE_ENABLE_PIKA=false
+MOGGIE_ENABLE_OVERSHOOT=false
+MOGGIE_ENABLE_IMAGE_GENERATION=false
+MOGGIE_ENABLE_LLM_LABELS=false
+MOGGIE_ENABLE_QNX_SUBSYSTEM=false
 ```
 
 ### 8.3 Database Tables
@@ -1589,7 +1591,7 @@ Implement mock/fallback clients first.
 
 ## 10.1 Native UI Components
 
-### `MoggiApp`
+### `MoggieApp`
 
 Top-level application object.
 
@@ -1615,7 +1617,7 @@ Responsibilities:
 
 Responsibilities:
 
-- display Moggi title;
+- display Moggie title;
 - show game cards;
 - show leaderboard preview;
 - route to player setup;
@@ -1840,7 +1842,7 @@ Could expose this information inside an in-app diagnostics screen rather than an
 Use a Python-first monorepo. Do not scaffold a Pygame/Pygame native UI for the MVP.
 
 ```text
-moggi/
+moggie/
   README.md
   .env.example
   scripts/
@@ -1851,7 +1853,7 @@ moggi/
     init_db.sh
     smoke_test_camera.py
   systemd/
-    moggi.service
+    moggie.service
   app/
     __init__.py
     main.py                         # starts native game shell
@@ -1931,20 +1933,20 @@ moggi/
     sponsor_pitch.md
 ```
 
-The `systemd/moggi.service` should boot directly into the game:
+The `systemd/moggie.service` should boot directly into the game:
 
 ```ini
 [Unit]
-Description=Moggi native kiosk game
+Description=Moggie native kiosk game
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/home/pi/moggi
-ExecStart=/home/pi/moggi/.venv/bin/python -m app.main
+WorkingDirectory=/home/pi/moggie
+ExecStart=/home/pi/moggie/.venv/bin/python -m app.main
 Restart=always
 RestartSec=2
-EnvironmentFile=/home/pi/moggi/.env
+EnvironmentFile=/home/pi/moggie/.env
 User=pi
 
 [Install]
@@ -1982,7 +1984,7 @@ Style direction:
 
 Shows:
 
-- Moggi logo/title;
+- Moggie logo/title;
 - three game cards;
 - leaderboard preview;
 - start prompt;
@@ -2132,7 +2134,7 @@ When idle, cycle through:
 Recommended OS/performance choice:
 
 - Use Raspberry Pi OS 64-bit Lite rather than switching to Ubuntu or another OS for the hackathon.
-- Boot directly into the Moggi game with `systemd`.
+- Boot directly into the Moggie game with `systemd`.
 - Focus performance effort on CV resolution, CV FPS, active cooling, and feature flags rather than OS replacement.
 
 ### 13.3 Internet Assumptions
@@ -2197,7 +2199,7 @@ Recommended development split:
 Implement in this order:
 
 1. Repo scaffold.
-2. Raspberry Pi OS Lite launch path: `run_game.sh` and `systemd/moggi.service`.
+2. Raspberry Pi OS Lite launch path: `run_game.sh` and `systemd/moggie.service`.
 3. Config and logging.
 4. SQLite leaderboard.
 5. Native Pygame app shell and home screen.
@@ -2359,7 +2361,7 @@ A single playthrough of one game, including players, state, timer, score, and fi
 
 ### Kiosk Mode
 
-A dedicated fullscreen game mode used for public booth interaction. In this design, kiosk mode means booting directly into the native Moggi game shell, not opening a desktop browser.
+A dedicated fullscreen game mode used for public booth interaction. In this design, kiosk mode means booting directly into the native Moggie game shell, not opening a desktop browser.
 
 ### Local-First Gameplay
 
@@ -2373,7 +2375,7 @@ The scoring target area in Emoji Face Match.
 
 The two-player game that assigns comedic aura scores from camera snapshots.
 
-### Moggi
+### Moggie
 
 The overall kiosk project.
 
@@ -2436,7 +2438,7 @@ Use simple abstractions. Avoid overengineering. The final demo should be resilie
 
 ## 19. Revision Notes for 1v1 Update
 
-This revision changes Moggi from a mixed solo/1v1 kiosk into a **1v1-first party-game kiosk**.
+This revision changes Moggie from a mixed solo/1v1 kiosk into a **1v1-first party-game kiosk**.
 
 Key changes:
 
@@ -2455,10 +2457,9 @@ This revision locks the main demo path to:
 - no standard desktop environment;
 - no Chromium/browser kiosk mode;
 - no React/Vite frontend;
-- direct launch into the Moggi game shell using `systemd`;
+- direct launch into the Moggie game shell using `systemd`;
 - native Python/Pygame/SDL2 fullscreen rendering over HDMI;
 - OpenCV/MediaPipe-style local CV in worker threads or processes;
 - internal event bus instead of HTTP/WebSocket as the primary game interface.
 
-The reason for this change is to reduce runtime overhead and setup complexity on the Pi 4. The project should feel like a dedicated appliance: power on the Pi and load directly into the Moggi game menu.
-
+The reason for this change is to reduce runtime overhead and setup complexity on the Pi 4. The project should feel like a dedicated appliance: power on the Pi and load directly into the Moggie game menu.
