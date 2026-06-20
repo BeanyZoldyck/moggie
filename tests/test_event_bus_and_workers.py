@@ -29,6 +29,9 @@ class EventBusAndWorkerTests(unittest.TestCase):
         event_types = {event.type for event in events}
         self.assertIn(EVENT_CV_HAND_LANDMARKS, event_types)
         self.assertTrue(all(isinstance(event.timestamp_ms, int) for event in events))
+        hand_event = next(event for event in events if event.type == EVENT_CV_HAND_LANDMARKS)
+        self.assertEqual(hand_event.payload["zone_assignment"]["counts"], {"p1": 1, "p2": 1})
+        self.assertEqual(hand_event.payload["hands"][0]["zone_assignment"]["source"], "palm_center")
         self.assertFalse(service.is_running)
 
     def test_latest_cv_state_tracks_most_recent_cv_payload(self) -> None:
