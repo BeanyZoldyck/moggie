@@ -65,7 +65,7 @@ class MogMirrorTests(unittest.TestCase):
         self.assertEqual(job_ids, [])
         self.assertEqual(service.submitted, [])
 
-    def test_ai_submission_uses_service_interface_for_enabled_jobs(self) -> None:
+    def test_ai_submission_skips_pika_without_public_source_url(self) -> None:
         service = FakeAIJobService()
         screen = MogMirrorScreen(
             SimpleNamespace(
@@ -76,8 +76,8 @@ class MogMirrorTests(unittest.TestCase):
 
         job_ids = screen._submit_ai_jobs(MirrorLane(name="Mina", zone="p1"), object(), 88, "MOGGED OUT")
 
-        self.assertEqual(job_ids, ["job-1", "job-2"])
-        self.assertEqual([kind for kind, _ in service.submitted], ["mog_mirror.caricature", "mog_mirror.victory_video"])
+        self.assertEqual(job_ids, ["job-1"])
+        self.assertEqual([kind for kind, _ in service.submitted], ["mog_mirror.caricature"])
         self.assertTrue(all(payload["has_crop"] for _, payload in service.submitted))
 
 
