@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from app.ui import theme
+
+
+ASSET_ROOT = Path(__file__).resolve().parents[1] / "moggi" / "assets"
+_IMAGE_CACHE: dict[str, Any] = {}
+_SCALED_IMAGE_CACHE: dict[tuple[str, tuple[int, int]], Any] = {}
 
 
 def scale_to_fit(source_size: tuple[int, int], target_size: tuple[int, int]) -> tuple[int, int]:
@@ -11,6 +17,53 @@ def scale_to_fit(source_size: tuple[int, int], target_size: tuple[int, int]) -> 
     target_w, target_h = target_size
     scale = min(target_w / source_w, target_h / source_h)
     return int(source_w * scale), int(source_h * scale)
+
+
+def load_asset_image(pygame: Any, filename: str) -> Any | None:
+    if filename in _IMAGE_CACHE:
+        return _IMAGE_CACHE[filename]
+
+    path = ASSET_ROOT / filename
+    if not path.exists():
+        return None
+
+    image = pygame.image.load(str(path))
+    try:
+        image = image.convert_alpha()
+    except pygame.error:
+        image = image.convert()
+    _IMAGE_CACHE[filename] = image
+    return image
+
+
+def scaled_asset_image(pygame: Any, filename: str, size: tuple[int, int]) -> Any | None:
+    if size[0] <= 0 or size[1] <= 0:
+        return None
+    key = (filename, size)
+    if key in _SCALED_IMAGE_CACHE:
+        return _SCALED_IMAGE_CACHE[key]
+
+    image = load_asset_image(pygame, filename)
+    if image is None:
+        return None
+    scaled = pygame.transform.smoothscale(image, size)
+    _SCALED_IMAGE_CACHE[key] = scaled
+    return scaled
+
+
+def draw_centered_asset(
+    pygame: Any,
+    surface: Any,
+    filename: str,
+    center: tuple[int, int],
+    size: tuple[int, int],
+) -> Any | None:
+    image = scaled_asset_image(pygame, filename, size)
+    if image is None:
+        return None
+    rect = image.get_rect(center=center)
+    surface.blit(image, rect)
+    return rect
 
 
 @dataclass(frozen=True)

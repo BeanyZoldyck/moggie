@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from app.core.game_catalog import GAMES, game_index, player_count_for_game
@@ -10,9 +11,11 @@ from app.ui.render_utils import (
     draw_badge,
     draw_bottom_rule,
     draw_button,
+    draw_centered_asset,
     draw_panel,
     draw_text,
     draw_wrapped_text,
+    scaled_asset_image,
 )
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 
@@ -25,6 +28,11 @@ def _pygame() -> Any:
 
 class HomeScreen:
     name = "home"
+    card_assets = (
+        ("card_mirror.png", "card_mirror_selected.PNG"),
+        ("card_sixseven.PNG", "card_sixseven_selected.PNG"),
+        ("card_emoji.PNG", "card_emoji_selected.PNG"),
+    )
 
     def __init__(self, manager: Any) -> None:
         self.manager = manager
@@ -60,61 +68,45 @@ class HomeScreen:
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-        surface.fill(theme.BACKGROUND)
+        bg = scaled_asset_image(pygame, "arcade_bg.png", (width, height))
+        if bg is None:
+            surface.fill(theme.BACKGROUND)
+        else:
+            surface.blit(bg, (0, 0))
 
-        pygame.draw.rect(surface, (31, 24, 24), pygame.Rect(0, 0, width, 126))
-        pygame.draw.rect(surface, theme.ACCENT, pygame.Rect(0, 126, width, 4))
-        draw_text(surface, "MOGGIE", fonts.masthead, theme.TEXT, (48, 24))
-        draw_text(surface, "KIOSK PARTY SHELL", fonts.small, theme.TEXT_MUTED, (54, 96))
-
-        card_margin = 48
-        card_gap = 18
-        card_y = 168
-        preview_h = min(164, max(118, height // 5))
-        card_h = min(276, max(218, height - preview_h - 392))
-        card_w = (width - card_margin * 2 - card_gap * 2) // 3
+        scale = min(width / 1280, height / 720)
+        card_normal = (max(184, int(330 * scale)), max(262, int(470 * scale)))
+        card_selected = (max(202, int(360 * scale)), max(292, int(520 * scale)))
+        card_centers = (
+            (int(width * 0.281), int(height * 0.493)),
+            (int(width * 0.492), int(height * 0.493)),
+            (int(width * 0.711), int(height * 0.493)),
+        )
         for index, game in enumerate(GAMES):
-            rect = pygame.Rect(card_margin + index * (card_w + card_gap), card_y, card_w, card_h)
-            selected = index == self.game_index
-            fill = (39, 32, 35) if selected else theme.SURFACE
-            border = game.accent if selected else theme.DIM_BORDER
-            draw_panel(pygame, surface, rect, fill=fill, border=border, width=3 if selected else 1)
-            pygame.draw.rect(
-                surface,
-                game.accent,
-                pygame.Rect(rect.left + 18, rect.bottom - 18, rect.width - 36, 6),
-                border_radius=3,
-            )
-            badge_rect = pygame.Rect(rect.left + 22, rect.top + 22, 82, 32)
-            draw_badge(pygame, surface, badge_rect, game.badge, fonts.small, accent=game.accent)
-            draw_text(
-                surface,
-                game.title,
-                fonts.card_title,
-                theme.TEXT,
-                (rect.left + 22, rect.top + 78),
-                max_width=rect.width - 44,
-            )
-            draw_wrapped_text(
-                surface,
-                game.tagline,
-                fonts.body,
-                theme.TEXT_MUTED,
-                pygame.Rect(rect.left + 24, rect.top + 136, rect.width - 48, 94),
-                max_lines=2,
-            )
+            selected = index == self.game_index and self.action_index == 0
+            normal_asset, selected_asset = self.card_assets[index]
+            filename = selected_asset if selected else normal_asset
+            size = card_selected if selected else card_normal
+            rect = draw_centered_asset(pygame, surface, filename, card_centers[index], size)
+            if rect is None:
+                rect = self._render_fallback_card(pygame, surface, index, game, card_centers[index], size, fonts)
+
             player_count = player_count_for_game(game.game_type, self.manager.config)
             mode = "SOLO" if player_count == 1 else "1V1"
             draw_text(
                 surface,
                 mode,
                 fonts.mono,
-                game.accent if selected else theme.TEXT_MUTED,
-                (rect.left + 24, rect.bottom - 58),
+                game.accent if index == self.game_index else theme.TEXT_MUTED,
+                (rect.centerx, rect.bottom - int(44 * scale)),
+                anchor="center",
+                max_width=max(80, rect.width - 54),
             )
 
         active_game = GAMES[self.game_index]
-        preview_rect = pygame.Rect(48, min(height - preview_h - 64, card_y + card_h + 24), min(430, width - 96), preview_h)
+        preview_w = min(int(260 * scale), max(180, width // 4))
+        preview_h = min(int(118 * scale), max(82, height // 7))
+        preview_rect = pygame.Rect(34, height - preview_h - 38, preview_w, preview_h)
         camera_service = self.manager.camera_service
         frame = camera_service.latest_display_frame() if camera_service is not None else None
         diagnostic = (
@@ -129,29 +121,34 @@ class HomeScreen:
             diagnostic=diagnostic,
             show_divider=self.manager.config.show_zone_divider,
         )
-        draw_text(surface, "LIVE CAMERA", fonts.small, theme.TEXT_MUTED, (preview_rect.right + 18, preview_rect.top + 6))
+        draw_text(surface, "LIVE CAMERA", fonts.small, theme.TEXT_MUTED, (preview_rect.right + 14, preview_rect.top + 6))
         draw_text(
             surface,
             f"INDEX {self.manager.config.camera_index}",
             fonts.mono,
             theme.ACCENT if frame is not None else theme.ERROR,
-            (preview_rect.right + 18, preview_rect.top + 34),
+            (preview_rect.right + 14, preview_rect.top + 32),
         )
 
-        button_w = 212
-        button_h = 58
-        buttons_y = height - 126
-        play_rect = pygame.Rect(width // 2 - button_w - 12, buttons_y, button_w, button_h)
-        board_rect = pygame.Rect(width // 2 + 12, buttons_y, button_w, button_h)
-        draw_button(
-            pygame,
-            surface,
-            play_rect,
-            "PLAY",
-            fonts.body,
-            selected=self.action_index == 0,
-            accent=active_game.accent,
+        play_size = (
+            max(190, int((350 if self.action_index == 0 else 320) * scale)),
+            max(96, int((200 if self.action_index == 0 else 170) * scale)),
         )
+        play_asset = "lets_go_pressed.png" if self.action_index == 0 else "lets_go.png"
+        play_rect = draw_centered_asset(pygame, surface, play_asset, (width // 2, int(height * 0.75)), play_size)
+        if play_rect is None:
+            play_rect = pygame.Rect(width // 2 - 106, int(height * 0.75) - 29, 212, 58)
+            draw_button(
+                pygame,
+                surface,
+                play_rect,
+                "PLAY",
+                fonts.body,
+                selected=self.action_index == 0,
+                accent=active_game.accent,
+            )
+
+        board_rect = pygame.Rect(width - 210, height - 94, 154, 46)
         draw_button(
             pygame,
             surface,
@@ -161,8 +158,55 @@ class HomeScreen:
             selected=self.action_index == 1,
             accent=active_game.accent,
         )
-        draw_bottom_rule(pygame, surface, height - 44, width)
-        draw_text(surface, "PYGAME / SQLITE / REDIS / OPTIONAL CLOUD AI", fonts.small, theme.TEXT_MUTED, (48, height - 32))
+
+        mascot_size = (max(110, int(300 * scale)), max(164, int(450 * scale)))
+        bounce = int(math.sin(pygame.time.get_ticks() / 120) * 7 * scale)
+        draw_centered_asset(
+            pygame,
+            surface,
+            "moo_deng_pixel.png",
+            (min(width - mascot_size[0] // 3, int(width * 0.88)), int(height * 0.58) + bounce),
+            mascot_size,
+        )
+
+        draw_bottom_rule(pygame, surface, height - 34, width)
+        draw_text(surface, "SPACE TO SELECT", fonts.small, theme.TEXT, (width // 2, height - 24), anchor="center")
+
+    def _render_fallback_card(
+        self,
+        pygame: Any,
+        surface: Any,
+        index: int,
+        game: Any,
+        center: tuple[int, int],
+        size: tuple[int, int],
+        fonts: FontSet,
+    ) -> Any:
+        rect = pygame.Rect(0, 0, size[0], size[1])
+        rect.center = center
+        selected = index == self.game_index and self.action_index == 0
+        fill = (39, 32, 35) if selected else theme.SURFACE
+        border = game.accent if selected else theme.DIM_BORDER
+        draw_panel(pygame, surface, rect, fill=fill, border=border, width=3 if selected else 1)
+        badge_rect = pygame.Rect(rect.left + 22, rect.top + 24, 82, 32)
+        draw_badge(pygame, surface, badge_rect, game.badge, fonts.small, accent=game.accent)
+        draw_text(
+            surface,
+            game.title,
+            fonts.card_title,
+            theme.TEXT,
+            (rect.left + 22, rect.top + 78),
+            max_width=rect.width - 44,
+        )
+        draw_wrapped_text(
+            surface,
+            game.tagline,
+            fonts.body,
+            theme.TEXT_MUTED,
+            pygame.Rect(rect.left + 24, rect.top + 136, rect.width - 48, 94),
+            max_lines=2,
+        )
+        return rect
 
     def _move_game(self, direction: int) -> None:
         self.game_index = (self.game_index + direction) % len(GAMES)
