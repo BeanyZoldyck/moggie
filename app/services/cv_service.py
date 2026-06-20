@@ -15,6 +15,7 @@ from app.core.app_event import (
 )
 from app.core.event_bus import EventBus
 from app.core.worker import ManagedWorker
+from app.cv.face_detection import FaceDetectionService
 from app.cv.hand_landmarks import HandLandmarkService
 from app.cv.zone_assignment import (
     assign_face,
@@ -54,6 +55,7 @@ class CVService:
             min_confidence=min_hand_confidence,
             split_x=self.zone_split_x,
         )
+        self.face_detection = FaceDetectionService()
         self.mock_events = mock_events
         self._lock = Lock()
         self._latest_state = LatestCVState()
@@ -183,10 +185,17 @@ class CVService:
             return []
 
         hands = self.hand_landmarks.detect(frame)
-        assignments = []
+        hand_assignments = []
         for hand in hands:
             try:
-                assignments.append(assign_hand(hand, split_x=self.zone_split_x))
+                hand_assignments.append(assign_hand(hand, split_x=self.zone_split_x))
+            except (TypeError, ValueError, KeyError):
+                continue
+        faces = self.face_detection.detect(frame)
+        face_assignments = []
+        for face in faces:
+            try:
+                face_assignments.append(assign_face(face, split_x=self.zone_split_x))
             except (TypeError, ValueError, KeyError):
                 continue
         return [
@@ -195,7 +204,15 @@ class CVService:
                 payload=hand_landmarks_payload(
                     hands,
                     frame_id=f"camera-{id(frame)}",
-                    zone_assignment=summarize_zone_assignments(assignments),
+                    zone_assignment=summarize_zone_assignments(hand_assignments),
+                ),
+            ),
+            AppEvent.create(
+                EVENT_CV_FACE_LANDMARKS,
+                payload=face_landmarks_payload(
+                    assign_face_detections(faces, split_x=self.zone_split_x),
+                    frame_id=f"camera-{id(frame)}",
+                    zone_assignment=summarize_zone_assignments(face_assignments),
                 ),
             )
         ]
