@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from json import JSONDecodeError
 from typing import Any
 
 LOGGER = logging.getLogger(__name__)
@@ -12,6 +13,7 @@ class RedisCacheService:
         self.redis_url = redis_url
         self.enabled = enabled
         self._client: Any | None = None
+        self._warned_failure = False
 
     def connect(self) -> None:
         if not self.enabled:
@@ -22,19 +24,39 @@ class RedisCacheService:
             self._client = redis.Redis.from_url(self.redis_url, decode_responses=True)
             self._client.ping()
         except Exception as exc:  # pragma: no cover - depends on optional service
-            LOGGER.warning("Redis unavailable; leaderboard cache disabled: %s", exc)
-            self._client = None
+            self._handle_failure(exc)
 
     def get_json(self, key: str) -> Any | None:
         if self._client is None:
             return None
-        raw = self._client.get(key)
-        return json.loads(raw) if raw else None
+        try:
+            raw = self._client.get(key)
+            return json.loads(raw) if raw else None
+        except JSONDecodeError as exc:
+            LOGGER.warning("Invalid Redis JSON for %s; ignoring cache entry: %s", key, exc)
+            return None
+        except Exception as exc:  # pragma: no cover - depends on optional service
+            self._handle_failure(exc)
+            return None
 
     def set_json(self, key: str, value: Any, ttl_seconds: int) -> None:
-        if self._client is not None:
+        if self._client is None:
+            return
+        try:
             self._client.setex(key, ttl_seconds, json.dumps(value))
+        except Exception as exc:  # pragma: no cover - depends on optional service
+            self._handle_failure(exc)
 
     def delete(self, key: str) -> None:
-        if self._client is not None:
+        if self._client is None:
+            return
+        try:
             self._client.delete(key)
+        except Exception as exc:  # pragma: no cover - depends on optional service
+            self._handle_failure(exc)
+
+    def _handle_failure(self, exc: Exception) -> None:
+        if not self._warned_failure:
+            LOGGER.warning("Redis unavailable; leaderboard cache disabled: %s", exc)
+            self._warned_failure = True
+        self._client = None

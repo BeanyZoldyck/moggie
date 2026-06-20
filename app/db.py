@@ -50,6 +50,9 @@ CREATE TABLE IF NOT EXISTS media_assets (
 
 CREATE INDEX IF NOT EXISTS idx_scores_game_score
 ON scores(game_type, score DESC, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_players_display_name
+ON players(display_name);
 """
 
 
@@ -57,6 +60,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
 
