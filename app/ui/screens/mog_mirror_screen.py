@@ -245,6 +245,6 @@ class MogMirrorScreen:
                 payload["image_bytes"] = image_bytes
                 payload["image_mime_type"] = "image/jpeg"
             job_ids.append(service.submit("mog_mirror.caricature", payload))
-        if self.manager.config.enable_pika:
+        if self.manager.config.enable_pika and (payload.get("image_url") or payload.get("source_uri")):
             job_ids.append(service.submit("mog_mirror.victory_video", payload))
         return job_ids

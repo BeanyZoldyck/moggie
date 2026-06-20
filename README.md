@@ -66,7 +66,7 @@ The primary target is Raspberry Pi OS 64-bit Lite with no desktop environment. T
 python -m app.main
 ```
 
-Install system dependencies with `scripts/install_pi_lite_deps.sh`, then install the service with `scripts/install_systemd_service.sh`. The service expects the repository at `/opt/moggie` by default; adjust the unit if the deploy path differs.
+Install system dependencies with `scripts/install_pi_lite_deps.sh`, then install the service with `scripts/install_systemd_service.sh`. The installer renders `/etc/systemd/system/moggie.service` with the current clone path, the current virtualenv Python, and the invoking user/group.
 
 Recommended Pi setup:
 

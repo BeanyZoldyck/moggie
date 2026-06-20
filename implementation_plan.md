@@ -107,7 +107,6 @@ moggie/
       mock_clients.py
       midjourney_mcp_client.py
       fal_pika_client.py
-      overshoot_client.py
       image_generation_client.py
       text_generation_client.py
     util/
@@ -175,7 +174,6 @@ MOGGIE_EMOJI_ENABLE_TONGUE_OUT=false
 MOGGIE_EMOJI_USE_CLOUD_VALIDATION=false
 
 MOGGIE_ENABLE_PIKA=false
-MOGGIE_ENABLE_OVERSHOOT=false
 MOGGIE_ENABLE_IMAGE_GENERATION=true
 MOGGIE_ENABLE_MIDJOURNEY=true
 MOGGIE_MIDJOURNEY_MCP_URL=https://mcp.midjourney.com/mcp
@@ -609,22 +607,9 @@ Expected useful output:
 }
 ```
 
-### Overshoot
+### Vision Validation
 
-No stable public Overshoot API documentation was found during planning. Implement a provider-neutral `VisionValidationClient` and an `OvershootVisionClient` skeleton with env-configured endpoint/key, but keep it disabled by default until sponsor docs are available.
-
-The client contract should support:
-
-```python
-class VisionValidationClient:
-    async def classify_expression(
-        self,
-        image_bytes: bytes,
-        target_expression: str,
-        allowed_labels: list[str],
-    ) -> "ExpressionValidationResult":
-        ...
-```
+No separate semantic vision provider is part of the shipped project. Keep Emoji Face Match on local expression heuristics by default. If a future provider is added, wire it behind `MOGGIE_EMOJI_USE_CLOUD_VALIDATION` and preserve the same local fallback behavior.
 
 ### LLM Labels
 
