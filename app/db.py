@@ -5,6 +5,14 @@ from pathlib import Path
 
 from app.config import load_config
 
+
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        result = super().__exit__(exc_type, exc_value, traceback)
+        self.close()
+        return result
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS players (
     id TEXT PRIMARY KEY,
@@ -58,7 +66,7 @@ ON players(display_name);
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_path)
+    connection = sqlite3.connect(db_path, factory=ClosingConnection)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection

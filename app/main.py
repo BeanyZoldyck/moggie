@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import argparse
 import logging
-import time
 
 from app.config import ConfigError, MoggieConfig, load_config
+from app.core.moggie_app import MoggieApp
 from app.db import initialize_database
 from app.util.logging import setup_logging
 
 LOGGER = logging.getLogger(__name__)
+
+
+class RuntimeDependencyError(RuntimeError):
+    """Raised when a required runtime package is missing."""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -17,29 +21,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--frames",
         type=int,
         default=None,
-        help="Override placeholder loop frame count. Use 0 to run until interrupted.",
+        help="Override app frame count for smoke tests. Use 0 to run until interrupted.",
     )
     return parser
 
 
-def run_placeholder_loop(config: MoggieConfig, frames: int | None = None) -> None:
-    target_frames = config.placeholder_frames if frames is None else max(0, frames)
-    LOGGER.info(
-        "Starting Moggie placeholder loop env=%s fullscreen=%s size=%sx%s db=%s",
-        config.env,
-        config.fullscreen,
-        config.window_width,
-        config.window_height,
-        config.db_path,
-    )
-
-    frame = 0
-    while target_frames == 0 or frame < target_frames:
-        frame += 1
-        LOGGER.debug("Placeholder frame %s", frame)
-        time.sleep(1 / 30)
-
-    LOGGER.info("Moggie placeholder loop exited after %s frame(s)", frame)
+def run_app(config: MoggieConfig, frames: int | None = None) -> None:
+    try:
+        MoggieApp(config).run(frames=frames)
+    except ModuleNotFoundError as exc:
+        if exc.name == "pygame":
+            raise RuntimeDependencyError(
+                "pygame is not installed; run `python3 -m pip install -e \".[dev]\"` "
+                "inside the project environment."
+            ) from exc
+        raise
 
 
 def main() -> int:
@@ -53,7 +49,11 @@ def main() -> int:
 
     setup_logging(config.env)
     initialize_database(config.db_path)
-    run_placeholder_loop(config, frames=args.frames)
+    try:
+        run_app(config, frames=args.frames)
+    except RuntimeDependencyError as exc:
+        LOGGER.error("%s", exc)
+        return 2
     return 0
 
 

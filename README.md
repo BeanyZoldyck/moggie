@@ -19,7 +19,7 @@ cp .env.example .env
 python -m app.main
 ```
 
-In development mode, `python -m app.main` runs a short placeholder loop and exits cleanly. Use `MOGGIE_PLACEHOLDER_FRAMES=0 ./scripts/run_game.sh` when you want the placeholder process to keep running like the kiosk service.
+In development mode, `python -m app.main` opens the windowed native shell. Use `python -m app.main --frames 3` for a short startup smoke test that exits cleanly.
 
 ## Useful Scripts
 
@@ -42,7 +42,8 @@ Install system dependencies with `scripts/install_pi_lite_deps.sh`, then install
 
 ## Project Layout
 
-- `app/main.py`: application entrypoint and placeholder loop
+- `app/main.py`: application entrypoint
+- `app/core/moggie_app.py`: Pygame app loop
 - `app/config.py`: typed environment configuration
 - `app/db.py`: SQLite initialization
 - `app/core/`: event bus, game registry, session/screen managers

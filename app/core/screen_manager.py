@@ -1,9 +1,82 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+
+from app.config import MoggieConfig
+from app.core.game_catalog import GAMES
+from app.services.leaderboard_service import LeaderboardService
+
+
+class Screen(Protocol):
+    name: str
+
+    def on_enter(self, **kwargs: Any) -> None:
+        ...
+
+    def handle_event(self, event: Any) -> None:
+        ...
+
+    def update(self, now_ms: int, dt_ms: int) -> None:
+        ...
+
+    def render(self, surface: Any) -> None:
+        ...
+
+
+@dataclass
+class ScreenState:
+    selected_game_type: str = GAMES[0].game_type
+    player_names: list[str] = field(default_factory=list)
+    reveal_rows: list[dict[str, Any]] = field(default_factory=list)
+
 
 class ScreenManager:
-    def __init__(self, initial_screen: str = "home") -> None:
-        self.current_screen = initial_screen
+    def __init__(
+        self,
+        config: MoggieConfig,
+        leaderboard_service: LeaderboardService,
+        *,
+        initial_screen: str = "home",
+    ) -> None:
+        from app.ui.screens.home_screen import HomeScreen
+        from app.ui.screens.leaderboard_screen import LeaderboardScreen
+        from app.ui.screens.player_setup_screen import PlayerSetupScreen
+        from app.ui.screens.score_reveal_screen import ScoreRevealScreen
 
-    def go_to(self, screen_name: str) -> None:
+        self.config = config
+        self.leaderboard_service = leaderboard_service
+        self.state = ScreenState()
+        self.should_quit = False
+        self._screens: dict[str, Screen] = {
+            "home": HomeScreen(self),
+            "player_setup": PlayerSetupScreen(self),
+            "score_reveal": ScoreRevealScreen(self),
+            "leaderboard": LeaderboardScreen(self),
+        }
+        if initial_screen not in self._screens:
+            raise ValueError(f"Unknown screen: {initial_screen}")
+        self.current_screen = initial_screen
+        self._screens[self.current_screen].on_enter()
+
+    @property
+    def active(self) -> Screen:
+        return self._screens[self.current_screen]
+
+    def go_to(self, screen_name: str, **kwargs: Any) -> None:
+        if screen_name not in self._screens:
+            raise ValueError(f"Unknown screen: {screen_name}")
         self.current_screen = screen_name
+        self._screens[screen_name].on_enter(**kwargs)
+
+    def request_quit(self) -> None:
+        self.should_quit = True
+
+    def handle_event(self, event: Any) -> None:
+        self.active.handle_event(event)
+
+    def update(self, now_ms: int, dt_ms: int) -> None:
+        self.active.update(now_ms, dt_ms)
+
+    def render(self, surface: Any) -> None:
+        self.active.render(surface)
