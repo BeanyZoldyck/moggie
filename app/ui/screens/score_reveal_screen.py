@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.app_event import EVENT_AI_JOB_UPDATE, AppEvent
 from app.core.game_catalog import game_for_type
 from app.ui import theme
 from app.ui.render_utils import (
@@ -26,9 +27,19 @@ class ScoreRevealScreen:
     def __init__(self, manager: Any) -> None:
         self.manager = manager
         self.fonts: FontSet | None = None
+        self.ai_job_statuses: dict[str, dict[str, Any]] = {}
 
     def on_enter(self, **_: Any) -> None:
-        return None
+        active_job_ids = {
+            job_id
+            for row in self.manager.state.reveal_rows
+            for job_id in row.get("ai_job_ids", [])
+        }
+        self.ai_job_statuses = {
+            job_id: status
+            for job_id, status in self.ai_job_statuses.items()
+            if job_id in active_job_ids
+        }
 
     def handle_event(self, event: Any) -> None:
         pygame = _pygame()
@@ -41,6 +52,18 @@ class ScoreRevealScreen:
 
     def update(self, now_ms: int, dt_ms: int) -> None:
         return None
+
+    def handle_app_event(self, event: AppEvent) -> None:
+        if event.type != EVENT_AI_JOB_UPDATE:
+            return
+        job_id = event.payload.get("job_id")
+        if not isinstance(job_id, str):
+            return
+        self.ai_job_statuses[job_id] = {
+            "status": event.payload.get("status"),
+            "kind": event.payload.get("metadata", {}).get("kind"),
+            "metadata": event.payload.get("metadata", {}),
+        }
 
     def render(self, surface: Any) -> None:
         pygame = _pygame()
@@ -113,6 +136,16 @@ class ScoreRevealScreen:
                     (text_x, rect.bottom - 38),
                     max_width=rect.width - (text_x - rect.left) - 230,
                 )
+            ai_status = self._ai_status_label(row)
+            if ai_status:
+                draw_text(
+                    surface,
+                    ai_status,
+                    fonts.small,
+                    theme.ACCENT if "READY" in ai_status else theme.TEXT_MUTED,
+                    (text_x, rect.bottom - 20),
+                    max_width=rect.width - (text_x - rect.left) - 230,
+                )
             score = "--" if row.get("score") is None else str(row["score"])
             draw_text(
                 surface,
@@ -149,3 +182,19 @@ class ScoreRevealScreen:
         except Exception:
             draw_text(surface, "NO CROP", self.fonts.small, theme.TEXT_MUTED, rect.center, anchor="center")
         pygame.draw.rect(surface, border, rect, 2, border_radius=8)
+
+    def _ai_status_label(self, row: dict[str, Any]) -> str:
+        job_ids = list(row.get("ai_job_ids", []))
+        if not job_ids:
+            return "LOCAL FALLBACK"
+        statuses = [
+            self.ai_job_statuses.get(job_id, {}).get("status", "queued")
+            for job_id in job_ids
+        ]
+        if any(status in {"queued", "running"} for status in statuses):
+            return "AI MEDIA RUNNING"
+        if any(status == "succeeded" for status in statuses):
+            return "AI MEDIA READY"
+        if any(status in {"failed", "timed_out"} for status in statuses):
+            return "AI MEDIA FALLBACK"
+        return "AI MEDIA QUEUED"
