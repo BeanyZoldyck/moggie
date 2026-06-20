@@ -369,10 +369,22 @@ https://mcp.midjourney.com/mcp
 Implementation notes:
 
 - integrate through an MCP client behind the internal `ImageGenerationClient` interface;
+- do not depend on Codex's MCP OAuth session at runtime; the kiosk app must have its own Midjourney OAuth token store;
+- add a setup-time `scripts/auth_midjourney.py` flow for headless Pi authorization;
+- store Midjourney OAuth tokens outside the repo with `0600` permissions, owned by the service user;
 - discover available MCP tools/capabilities at startup or first use because the server is pre-release;
 - keep Midjourney jobs asynchronous and timeout-bound;
 - do not block score reveal or leaderboard writes on image generation;
 - store generated media only when storage flags allow it.
+
+Headless Pi OAuth flow:
+
+1. During setup, run `scripts/auth_midjourney.py` over SSH or from a kiosk admin/setup screen.
+2. The script connects to the MCP endpoint with OAuth-aware Streamable HTTP client support.
+3. The script prints an authorization URL and may display a QR code on the kiosk screen.
+4. A teammate completes OAuth on a phone/laptop and pastes the final callback URL/code into the setup script if no local redirect is reachable.
+5. The script writes token state to `~/.config/moggie/midjourney_oauth.json`.
+6. Runtime generation uses the stored token and refreshes it when possible. If auth is missing or expired, the app skips Midjourney generation and uses local image fallback.
 
 If Midjourney integration is too slow, unavailable, or operationally awkward, fall back to:
 
@@ -1255,7 +1267,9 @@ MOGGIE_ENABLE_OVERSHOOT=false
 MOGGIE_ENABLE_IMAGE_GENERATION=true
 MOGGIE_ENABLE_MIDJOURNEY=true
 MOGGIE_MIDJOURNEY_MCP_URL=https://mcp.midjourney.com/mcp
-MOGGIE_MIDJOURNEY_MCP_AUTH_TOKEN=
+MOGGIE_MIDJOURNEY_TOKEN_STORE=~/.config/moggie/midjourney_oauth.json
+MOGGIE_MIDJOURNEY_CLIENT_ID=
+MOGGIE_MIDJOURNEY_CLIENT_SECRET=
 MOGGIE_ENABLE_LLM_LABELS=false
 MOGGIE_ENABLE_QNX_SUBSYSTEM=false
 ```
