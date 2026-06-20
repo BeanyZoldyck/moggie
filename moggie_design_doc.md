@@ -294,9 +294,10 @@ Sponsor technologies of interest include:
 
 - Overshoot;
 - Pika;
-- Midjourney or equivalent image generation;
+- Midjourney pre-release MCP server for image generation;
 - Anthropic or equivalent LLM;
-- Redis, Sentry, Runpod, Arize, Deepgram, or others if useful.
+- Redis for leaderboard caching;
+- Sentry, Runpod, Arize, Deepgram, or others if useful.
 - QNX if possible
 
 Pika should be integrated if possible -- We can feed short clips into the model and tell it to generate funny "replays" of the round.
@@ -355,11 +356,25 @@ Best use cases:
 
 Pika generation should be asynchronous and non-blocking. The player should see their score immediately. The app may then display "generating aura clip..." and show the clip if ready.
 
-### 4.4 Midjourney or Image Generation
+### 4.4 Midjourney MCP Image Generation
 
-Use Midjourney or another available image generation service for Mog Mirror caricatures.
+Use Midjourney's pre-release MCP server for Mog Mirror caricatures.
 
-If Midjourney integration is too slow or operationally awkward, use another sponsor/API provider or fall back to:
+Endpoint:
+
+```text
+https://mcp.midjourney.com/mcp
+```
+
+Implementation notes:
+
+- integrate through an MCP client behind the internal `ImageGenerationClient` interface;
+- discover available MCP tools/capabilities at startup or first use because the server is pre-release;
+- keep Midjourney jobs asynchronous and timeout-bound;
+- do not block score reveal or leaderboard writes on image generation;
+- store generated media only when storage flags allow it.
+
+If Midjourney integration is too slow, unavailable, or operationally awkward, fall back to:
 
 - original webcam crop;
 - locally applied visual effects;
@@ -378,11 +393,22 @@ Use an LLM for:
 
 LLM output should be cached or generated with timeouts so it does not block gameplay.
 
-### 4.6 Other Sponsors
+### 4.6 Redis
+
+Redis is a locked sponsor integration for the leaderboard cache.
+
+Use Redis for:
+
+- top-10 leaderboard read-through cache;
+- per-game leaderboard cache invalidation after score writes;
+- optional live score pub/sub or event stream if time remains.
+
+SQLite remains the source of truth. Redis failure should never prevent score persistence or gameplay.
+
+### 4.7 Other Sponsors
 
 Optional integrations:
 
-- Redis: leaderboard cache, live score pub/sub, event stream.
 - Sentry: kiosk error reporting.
 - Runpod: hosted GPU backend for heavier CV/image/video tasks.
 - Arize: evaluation/observability of AI outputs if sponsor track encourages it.
@@ -499,7 +525,7 @@ Acceptance criteria:
 
 #### US-9: Add or Modify Games Independently
 
-As a developer, I want each game to be isolated enough that three developers can work in parallel.
+As a developer, I want each game and sponsor integration to be isolated enough that four developers can work in parallel.
 
 Acceptance criteria:
 
@@ -552,6 +578,7 @@ Moggie runs as a native local game shell on Raspberry Pi OS 64-bit Lite.
 | - Game session manager                                     |
 | - Game registry                                            |
 | - Leaderboard service                                      |
+| - Redis leaderboard cache                                  |
 | - Storage service                                          |
 | - AI job service                                           |
 | - Sponsor integration service                              |
@@ -577,7 +604,7 @@ Moggie runs as a native local game shell on Raspberry Pi OS 64-bit Lite.
 | Optional Cloud AI Services                                 |
 |                                                            |
 | - Pika: generated video/media                              |
-| - Midjourney or equivalent: caricature images              |
+| - Midjourney MCP: caricature images                        |
 | - Overshoot or equivalent: semantic vision validation      |
 | - LLM provider: labels, narration, loading text            |
 +------------------------------------------------------------+
@@ -1152,7 +1179,7 @@ Implementation agents should treat these flags as first-class product requiremen
 
 ### 8.1 Persistence Strategy
 
-Use SQLite.
+Use SQLite as the durable source of truth and Redis as a read-through leaderboard cache.
 
 Persist:
 
@@ -1163,6 +1190,16 @@ Persist:
 - optional media asset references.
 
 Do not persist raw images/videos by default.
+
+Redis should cache top leaderboard reads by game type. Score writes must update SQLite first and then invalidate the affected Redis cache key. If Redis is unavailable, the app should log the cache failure and fall back to SQLite without blocking gameplay.
+
+Suggested Redis keys:
+
+```text
+leaderboard:mog_mirror:top10
+leaderboard:sixty_seven:top10
+leaderboard:emoji_face_match:top10
+```
 
 ### 8.2 Environment Configuration
 
@@ -1175,6 +1212,9 @@ MOGGIE_HOST=127.0.0.1
 MOGGIE_PORT=8000
 
 MOGGIE_DB_PATH=./data/moggie.sqlite
+MOGGIE_ENABLE_REDIS_LEADERBOARD_CACHE=true
+MOGGIE_REDIS_URL=redis://localhost:6379/0
+MOGGIE_REDIS_LEADERBOARD_TTL_SECONDS=30
 
 MOGGIE_STORAGE_MODE=none
 MOGGIE_MEDIA_DIR=./media
@@ -1212,7 +1252,10 @@ MOGGIE_EMOJI_USE_CLOUD_VALIDATION=false
 
 MOGGIE_ENABLE_PIKA=false
 MOGGIE_ENABLE_OVERSHOOT=false
-MOGGIE_ENABLE_IMAGE_GENERATION=false
+MOGGIE_ENABLE_IMAGE_GENERATION=true
+MOGGIE_ENABLE_MIDJOURNEY=true
+MOGGIE_MIDJOURNEY_MCP_URL=https://mcp.midjourney.com/mcp
+MOGGIE_MIDJOURNEY_MCP_AUTH_TOKEN=
 MOGGIE_ENABLE_LLM_LABELS=false
 MOGGIE_ENABLE_QNX_SUBSYSTEM=false
 ```
@@ -1348,9 +1391,9 @@ LIMIT 10;
 
 ## 9. Interface Design
 
-Because the main demo runs as a native Python/Pygame app on Raspberry Pi OS Lite, the primary interfaces are **internal Python service interfaces** and **in-process event schemas**, not native app internal service interfaces.
+Because the main demo runs as a native Python/Pygame app on Raspberry Pi OS Lite, the primary interfaces are **internal Python service interfaces** and **in-process event schemas**, not HTTP/WebSocket interfaces.
 
-A local local/internal debug API may be added later, but Codex should not scaffold a Pygame/Pygame/native fullscreen app app for the MVP.
+A local debug/admin API may be added later, but the MVP should scaffold a native Python + Pygame/SDL2 fullscreen application. HTTP/WebSocket interfaces are optional debug/development tools only, not the runtime path.
 
 ## 9.1 Internal Event Bus
 
@@ -1809,8 +1852,18 @@ Responsibilities:
 
 - create players;
 - store scores;
-- query leaderboards;
+- query leaderboards using Redis as a read-through cache;
+- invalidate per-game Redis leaderboard cache keys after score writes;
 - compute ranks.
+
+### `RedisCacheService`
+
+Responsibilities:
+
+- connect to `MOGGIE_REDIS_URL`;
+- provide JSON cache get/set/delete helpers;
+- apply leaderboard cache TTLs;
+- degrade gracefully when Redis is unavailable.
 
 ### `StorageService`
 
@@ -1839,7 +1892,7 @@ Could expose this information inside an in-app diagnostics screen rather than an
 
 ## 11. Suggested Repository Structure
 
-Use a Python-first monorepo. Do not scaffold a Pygame/Pygame native UI for the MVP.
+Use a Python-first monorepo. Scaffold a native Python + Pygame/SDL2 fullscreen app for the MVP; do not scaffold a React/browser frontend.
 
 ```text
 moggie/
@@ -2167,7 +2220,7 @@ Default:
 
 ### 13.6 Development Assumptions
 
-Team has three developers.
+Team has four developers.
 
 Recommended development split:
 
@@ -2183,7 +2236,13 @@ Recommended development split:
    - 67 Challenge;
    - Emoji Face Match.
 
-3. Shared integration/polish:
+3. Dedicated sponsor/cache integration:
+   - Redis leaderboard cache;
+   - Midjourney MCP image generation;
+   - Pika/Fal video generation;
+   - AI job service and provider interfaces.
+
+4. Shared integration/polish:
    - Pika;
    - Overshoot;
    - QNX story;
@@ -2213,6 +2272,8 @@ Implement in this order:
 13. Emoji Face Match basic UI and local expression heuristics.
 14. Emoji Face Match 1v1 mode, with alternating-turn fallback behind config flag.
 15. Sponsor integrations:
+    - Redis;
+    - Midjourney MCP;
     - Pika;
     - image generation;
     - Overshoot;
@@ -2415,7 +2476,7 @@ Given this document, produce:
 4. native UI component plan;
 5. database migration/init plan;
 6. game-specific task breakdown;
-7. milestone order for a three-person hackathon team;
+7. milestone order for a four-person hackathon team;
 8. risk register with mitigations;
 9. Codex-ready coding prompts or task tickets.
 
