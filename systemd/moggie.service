@@ -1,0 +1,19 @@
+[Unit]
+Description=Moggie kiosk game shell
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/moggie
+Environment=MOGGIE_ENV=production
+Environment=MOGGIE_FULLSCREEN=true
+Environment=MOGGIE_PLACEHOLDER_FRAMES=0
+ExecStart=/opt/moggie/.venv/bin/python -m app.main
+Restart=always
+RestartSec=3
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target

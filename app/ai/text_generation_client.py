@@ -1,0 +1,2 @@
+class TextGenerationClient:
+    pass

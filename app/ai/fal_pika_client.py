@@ -1,0 +1,2 @@
+class FalPikaClient:
+    pass

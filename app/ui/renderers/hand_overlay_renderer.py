@@ -1,0 +1,2 @@
+class HandOverlayRenderer:
+    pass
