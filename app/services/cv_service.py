@@ -15,6 +15,7 @@ from app.core.app_event import (
 )
 from app.core.event_bus import EventBus
 from app.core.worker import ManagedWorker
+from app.cv.hand_landmarks import HandLandmarkService
 from app.cv.zone_assignment import (
     assign_face,
     assign_face_detections,
@@ -40,12 +41,19 @@ class CVService:
         camera_service: CameraService | None = None,
         cv_fps: int = 15,
         zone_split_x: float = 0.5,
+        max_hands: int = 4,
+        min_hand_confidence: float = 0.55,
         mock_events: bool = False,
     ) -> None:
         self.event_bus = event_bus
         self.camera_service = camera_service
         self.cv_fps = max(1, cv_fps)
         self.zone_split_x = max(0.0, min(1.0, zone_split_x))
+        self.hand_landmarks = HandLandmarkService(
+            max_hands=max_hands,
+            min_confidence=min_hand_confidence,
+            split_x=self.zone_split_x,
+        )
         self.mock_events = mock_events
         self._lock = Lock()
         self._latest_state = LatestCVState()
@@ -65,6 +73,8 @@ class CVService:
             camera_service=camera_service,
             cv_fps=config.cv_fps,
             zone_split_x=config.zone_split_x,
+            max_hands=config.sixty_seven_max_hands,
+            min_hand_confidence=config.sixty_seven_min_confidence,
             mock_events=mock_events,
         )
 
@@ -77,6 +87,7 @@ class CVService:
 
     def stop(self) -> None:
         self._worker.stop()
+        self.hand_landmarks.stop()
 
     def latest_state(self) -> LatestCVState:
         with self._lock:
@@ -164,6 +175,31 @@ class CVService:
             ),
         ]
 
+    def _build_camera_events(self) -> list[AppEvent]:
+        if self.camera_service is None:
+            return []
+        frame = self.camera_service.latest_cv_frame()
+        if frame is None:
+            return []
+
+        hands = self.hand_landmarks.detect(frame)
+        assignments = []
+        for hand in hands:
+            try:
+                assignments.append(assign_hand(hand, split_x=self.zone_split_x))
+            except (TypeError, ValueError, KeyError):
+                continue
+        return [
+            AppEvent.create(
+                EVENT_CV_HAND_LANDMARKS,
+                payload=hand_landmarks_payload(
+                    hands,
+                    frame_id=f"camera-{id(frame)}",
+                    zone_assignment=summarize_zone_assignments(assignments),
+                ),
+            )
+        ]
+
 
 class _CVWorker(ManagedWorker):
     def __init__(self, service: CVService) -> None:
@@ -176,6 +212,9 @@ class _CVWorker(ManagedWorker):
         while not self.should_stop:
             if self.service.mock_events:
                 for event in self.service._build_mock_events(frame_number):
+                    self.service.publish(event)
+            else:
+                for event in self.service._build_camera_events():
                     self.service.publish(event)
             frame_number += 1
             self.wait(interval_seconds)

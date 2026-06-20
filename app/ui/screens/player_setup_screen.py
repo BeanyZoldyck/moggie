@@ -169,4 +169,7 @@ class PlayerSetupScreen:
             }
             for name in names
         ]
+        if self.manager.state.selected_game_type == "sixty_seven":
+            self.manager.go_to("sixty_seven")
+            return
         self.manager.go_to("score_reveal")

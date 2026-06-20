@@ -62,7 +62,7 @@ class ShellRuntimeTests(unittest.TestCase):
             self.manager.handle_event(self._key(ord(char.lower()), char))
         self.manager.handle_event(self._key(pygame.K_RETURN))
 
-        self.assertEqual(self.manager.current_screen, "score_reveal")
+        self.assertEqual(self.manager.current_screen, "sixty_seven")
         self.assertEqual(self.manager.state.player_names, ["Ada", "Ben"])
 
         self.manager.handle_event(self._key(pygame.K_ESCAPE))
