@@ -61,22 +61,30 @@ def hand_landmarks_payload(
     hands: list[dict[str, Any]],
     *,
     frame_id: str | None = None,
+    zone_assignment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "frame_id": frame_id,
         "hands": hands,
     }
+    if zone_assignment is not None:
+        payload["zone_assignment"] = zone_assignment
+    return payload
 
 
 def face_landmarks_payload(
     faces: list[dict[str, Any]],
     *,
     frame_id: str | None = None,
+    zone_assignment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "frame_id": frame_id,
         "faces": faces,
     }
+    if zone_assignment is not None:
+        payload["zone_assignment"] = zone_assignment
+    return payload
 
 
 def score_update_payload(
