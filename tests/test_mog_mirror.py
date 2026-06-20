@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from types import SimpleNamespace
 import unittest
 
 from app.games.mog_mirror import crop_upper_body, label_for_aura, score_aura
+from app.ui.screens.mog_mirror_screen import MirrorLane, MogMirrorScreen
 
 
 class FakeFrame:
@@ -47,6 +50,48 @@ class MogMirrorTests(unittest.TestCase):
         self.assertIsNotNone(crop)
         assert crop is not None
         self.assertEqual(crop.shape, (480, 320, 3))
+
+    def test_ai_submission_respects_disabled_cloud_flags(self) -> None:
+        service = FakeAIJobService()
+        screen = MogMirrorScreen(
+            SimpleNamespace(
+                ai_job_service=service,
+                config=SimpleNamespace(enable_image_generation=False, enable_pika=False),
+            )
+        )
+
+        job_ids = screen._submit_ai_jobs(MirrorLane(name="Mina", zone="p1"), None, 88, "MOGGED OUT")
+
+        self.assertEqual(job_ids, [])
+        self.assertEqual(service.submitted, [])
+
+    def test_ai_submission_uses_service_interface_for_enabled_jobs(self) -> None:
+        service = FakeAIJobService()
+        screen = MogMirrorScreen(
+            SimpleNamespace(
+                ai_job_service=service,
+                config=SimpleNamespace(enable_image_generation=True, enable_pika=True),
+            )
+        )
+
+        job_ids = screen._submit_ai_jobs(MirrorLane(name="Mina", zone="p1"), object(), 88, "MOGGED OUT")
+
+        self.assertEqual(job_ids, ["job-1", "job-2"])
+        self.assertEqual([kind for kind, _ in service.submitted], ["mog_mirror.caricature", "mog_mirror.victory_video"])
+        self.assertTrue(all(payload["has_crop"] for _, payload in service.submitted))
+
+
+@dataclass
+class FakeAIJobService:
+    submitted: list[tuple[str, dict[str, object]]] | None = None
+
+    def __post_init__(self) -> None:
+        self.submitted = []
+
+    def submit(self, kind: str, payload: dict[str, object]) -> str:
+        assert self.submitted is not None
+        self.submitted.append((kind, payload))
+        return f"job-{len(self.submitted)}"
 
 
 if __name__ == "__main__":

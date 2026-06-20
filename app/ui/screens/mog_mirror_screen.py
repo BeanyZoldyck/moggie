@@ -215,6 +215,7 @@ class MogMirrorScreen:
                     "rank": score_record.rank,
                     "winner": winner,
                     "crop_bgr": crop,
+                    "ai_job_ids": ai_job_ids,
                 }
             )
         self.manager.leaderboard_service.complete_session(

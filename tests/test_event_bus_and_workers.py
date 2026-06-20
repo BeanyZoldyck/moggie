@@ -69,7 +69,7 @@ class EventBusAndWorkerTests(unittest.TestCase):
                 lambda drained: any(
                     event.type == EVENT_AI_JOB_UPDATE
                     and event.payload["job_id"] == job_id
-                    and event.payload["status"] == "complete"
+                    and event.payload["status"] == "succeeded"
                     for event in drained
                 ),
             )
@@ -79,8 +79,81 @@ class EventBusAndWorkerTests(unittest.TestCase):
         statuses = [event.payload["status"] for event in events if event.type == EVENT_AI_JOB_UPDATE]
         self.assertIn("queued", statuses)
         self.assertIn("running", statuses)
-        self.assertIn("complete", statuses)
+        self.assertIn("succeeded", statuses)
         self.assertFalse(service.is_running)
+
+    def test_ai_job_worker_emits_failed_event_without_blocking(self) -> None:
+        bus = EventBus()
+
+        def fail(_: dict[str, object]) -> dict[str, object]:
+            raise RuntimeError("provider unavailable")
+
+        service = AIJobService(event_bus=bus, handler=fail)
+
+        service.start()
+        try:
+            job_id = service.submit("mock.fail", {})
+            events = self._drain_until(
+                bus,
+                lambda drained: any(
+                    event.type == EVENT_AI_JOB_UPDATE
+                    and event.payload["job_id"] == job_id
+                    and event.payload["status"] == "failed"
+                    for event in drained
+                ),
+            )
+        finally:
+            service.stop()
+
+        failed = next(event for event in events if event.payload.get("status") == "failed")
+        self.assertEqual(failed.payload["metadata"]["error"], "provider unavailable")
+
+    def test_ai_job_worker_times_out_slow_mock_jobs(self) -> None:
+        bus = EventBus()
+        service = AIJobService(event_bus=bus, timeout_seconds=0.01)
+
+        service.start()
+        try:
+            job_id = service.submit("mog_mirror.caricature", {"mock_delay_seconds": 0.1})
+            events = self._drain_until(
+                bus,
+                lambda drained: any(
+                    event.type == EVENT_AI_JOB_UPDATE
+                    and event.payload["job_id"] == job_id
+                    and event.payload["status"] == "timed_out"
+                    for event in drained
+                ),
+            )
+        finally:
+            service.stop()
+
+        statuses = [event.payload["status"] for event in events if event.payload.get("job_id") == job_id]
+        self.assertEqual(statuses[-1], "timed_out")
+
+    def test_mock_ai_route_completes_without_network_access(self) -> None:
+        bus = EventBus()
+        service = AIJobService(event_bus=bus)
+
+        service.start()
+        try:
+            job_id = service.submit("mog_mirror.caricature", {"display_name": "Ada"})
+            events = self._drain_until(
+                bus,
+                lambda drained: any(
+                    event.type == EVENT_AI_JOB_UPDATE
+                    and event.payload["job_id"] == job_id
+                    and event.payload["status"] == "succeeded"
+                    for event in drained
+                ),
+            )
+        finally:
+            service.stop()
+
+        succeeded = next(event for event in events if event.payload.get("status") == "succeeded")
+        result = succeeded.payload["metadata"]["result"]
+        self.assertEqual(result["provider"], "mock")
+        self.assertEqual(result["kind"], "image")
+        self.assertEqual(result["uri"], "mock://image/Ada")
 
     def _drain_until(
         self,

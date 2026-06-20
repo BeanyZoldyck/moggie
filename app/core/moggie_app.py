@@ -33,7 +33,7 @@ class MoggieApp:
             event_bus=self.event_bus,
             camera_service=self.camera_service,
         )
-        self.ai_job_service = AIJobService(event_bus=self.event_bus)
+        self.ai_job_service = AIJobService.from_config(config, event_bus=self.event_bus)
         self.screen_manager = ScreenManager(
             config,
             self.leaderboard_service,
