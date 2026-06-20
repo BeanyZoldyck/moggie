@@ -82,6 +82,9 @@ class ShellRuntimeTests(unittest.TestCase):
         self.manager.render(surface)
         self.manager.go_to("leaderboard")
         self.manager.render(surface)
+        self.manager.go_to("idle_attract")
+        self.manager.update(10_000, 16)
+        self.manager.render(surface)
 
     def _key(self, key: int, unicode: str = "") -> Any:
         return self.pygame.event.Event(self.pygame.KEYDOWN, key=key, unicode=unicode, mod=0)

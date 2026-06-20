@@ -26,6 +26,7 @@ class CameraService:
         camera_height: int,
         cv_width: int,
         cv_height: int,
+        retry_interval_seconds: int = 3,
         capture_factory: CaptureFactory | None = None,
         cv2_module: Any | None = None,
     ) -> None:
@@ -34,12 +35,14 @@ class CameraService:
         self.camera_height = camera_height
         self.cv_width = cv_width
         self.cv_height = cv_height
+        self.retry_interval_seconds = retry_interval_seconds
         self._capture_factory = capture_factory
         self._capture: Any | None = None
         self._cv2: Any | None = cv2_module
         self._latest_frame: CameraFrame | None = None
         self._running = False
         self._diagnostic = "Camera has not been started."
+        self._next_retry_at = 0.0
 
     @classmethod
     def from_config(cls, config: MoggieConfig) -> CameraService:
@@ -49,6 +52,7 @@ class CameraService:
             camera_height=config.camera_height,
             cv_width=config.cv_width,
             cv_height=config.cv_height,
+            retry_interval_seconds=config.camera_retry_seconds,
         )
 
     @property
@@ -78,6 +82,7 @@ class CameraService:
                     f"Camera index {self.camera_index} unavailable: "
                     "OpenCV is not installed."
                 )
+                self._next_retry_at = monotonic() + self.retry_interval_seconds
                 return
             self._cv2 = cv2
 
@@ -89,21 +94,32 @@ class CameraService:
 
         if not capture.isOpened():
             capture.release()
-            self._diagnostic = f"Camera index {self.camera_index} could not be opened."
+            self._diagnostic = (
+                f"Camera index {self.camera_index} could not be opened. "
+                f"Retrying every {self.retry_interval_seconds}s."
+            )
+            self._next_retry_at = monotonic() + self.retry_interval_seconds
             return
 
         self._capture = capture
         self._running = True
+        self._next_retry_at = 0.0
         self._diagnostic = f"Camera index {self.camera_index} is open."
         self.poll()
 
     def poll(self) -> CameraFrame | None:
+        if self._capture is None and monotonic() >= self._next_retry_at:
+            self.start()
+
         if not self._running or self._capture is None:
             return self._latest_frame
 
         ok, frame = self._capture.read()
         if not ok or frame is None:
-            self._diagnostic = f"Camera index {self.camera_index} opened but did not return a frame."
+            self._diagnostic = (
+                f"Camera index {self.camera_index} opened but did not return a frame. "
+                "Keeping the last good frame."
+            )
             return self._latest_frame
 
         display_frame = self._resize(frame, self.camera_width, self.camera_height)

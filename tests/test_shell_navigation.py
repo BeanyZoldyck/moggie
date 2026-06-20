@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.config import load_config
 from app.core.screen_manager import ScreenManager
-from app.db import initialize_database
+from app.db import connect, initialize_database
 from app.services.leaderboard_service import LeaderboardService
 
 
@@ -158,6 +158,47 @@ class ShellNavigationTests(unittest.TestCase):
         screen = manager.active
 
         self.assertEqual(screen.values, [""])
+
+    def test_home_idles_into_attract_mode_and_wakes_back_home(self) -> None:
+        manager = self._manager({"MOGGIE_IDLE_TIMEOUT_SECONDS": "5"})
+
+        manager.update(now_ms=1_000, dt_ms=16)
+        manager.update(now_ms=6_100, dt_ms=16)
+
+        self.assertEqual(manager.current_screen, "idle_attract")
+        manager.wake_to_home()
+        self.assertEqual(manager.current_screen, "home")
+
+    def test_recent_media_assets_returns_generated_media_for_attract_mode(self) -> None:
+        service = LeaderboardService(self.db_path)
+        session = service.create_session("mog_mirror")
+        player = service.get_or_create_player("Mina")
+        with connect(self.db_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO media_assets (
+                    id, session_id, player_id, kind, storage_mode, uri, metadata_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "media_test",
+                    session.id,
+                    player.id,
+                    "generated_clip",
+                    "local",
+                    "media/generated/mirror.mp4",
+                    None,
+                    "2026-06-20T12:00:00Z",
+                ),
+            )
+            connection.commit()
+
+        rows = service.recent_media_assets()
+
+        self.assertEqual(rows[0]["kind"], "generated_clip")
+        self.assertEqual(rows[0]["game_type"], "mog_mirror")
+        self.assertEqual(rows[0]["display_name"], "Mina")
 
 
 if __name__ == "__main__":

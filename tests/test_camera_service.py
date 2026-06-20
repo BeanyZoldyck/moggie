@@ -103,6 +103,33 @@ class CameraServiceTests(unittest.TestCase):
         self.assertFalse(service.is_available)
         self.assertIn("Camera index 9 could not be opened", service.diagnostic_message)
 
+    def test_poll_retries_after_failed_open(self) -> None:
+        captures = [FakeCapture(opened=False), FakeCapture(opened=True)]
+
+        def factory(index: int) -> FakeCapture:
+            return captures.pop(0)
+
+        service = CameraService(
+            1,
+            camera_width=640,
+            camera_height=480,
+            cv_width=320,
+            cv_height=240,
+            retry_interval_seconds=1,
+            capture_factory=factory,
+            cv2_module=FakeCv2(),
+        )
+
+        service.start()
+        self.assertFalse(service.is_available)
+
+        service._next_retry_at = 0
+        frame = service.poll()
+
+        self.assertTrue(service.is_available)
+        self.assertIsNotNone(frame)
+        self.assertIn("Camera index 1 streaming", service.diagnostic_message)
+
 
 if __name__ == "__main__":
     unittest.main()
