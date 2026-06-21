@@ -18,6 +18,8 @@ from app.ui.render_utils import (
     scaled_asset_image,
 )
 
+from app.ui.sparkle_layer import SparkleLayer
+
 def _pygame() -> Any:
     import pygame
 
@@ -37,6 +39,7 @@ class HomeScreen:
         self.game_index = 0
         self.action_index = 0
         self.fonts: FontSet | None = None
+        self.sparkles = None
 
     def on_enter(self, **_: Any) -> None:
         self.game_index = game_index(self.manager.state.selected_game_type)
@@ -58,6 +61,8 @@ class HomeScreen:
             self.manager.go_to("leaderboard")
 
     def update(self, now_ms: int, dt_ms: int) -> None:
+        if self.sparkles is not None:
+            self.sparkles.update(dt_ms)
         return None
 
     def render(self, surface: Any) -> None:
@@ -65,6 +70,8 @@ class HomeScreen:
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
+        if self.sparkles is None:
+            self.sparkles = SparkleLayer(pygame, width, height, count=120)
         bg = scaled_asset_image(pygame, "arcade_bg.png", (width, height))
         if bg is None:
             surface.fill(theme.BACKGROUND)
@@ -131,6 +138,8 @@ class HomeScreen:
 
         draw_bottom_rule(pygame, surface, height - 34, width)
         draw_text(surface, "SPACE TO SELECT", fonts.small, theme.TEXT, (width // 2, height - 140), anchor="center")
+        if self.sparkles is not None:
+            self.sparkles.render(surface)
 
     def _render_fallback_card(
         self,

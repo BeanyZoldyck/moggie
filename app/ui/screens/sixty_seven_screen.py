@@ -10,6 +10,8 @@ from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_pan
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.hand_overlay_renderer import HandOverlayRenderer
 
+from app.ui.sparkle_layer import SparkleLayer
+
 
 def _pygame() -> Any:
     import pygame
@@ -40,6 +42,7 @@ class SixtySevenScreen:
         self.session_id: str | None = None
         self.started_at_ms: int | None = None
         self.finished = False
+        self.sparkles = None
 
     def on_enter(self, **_: Any) -> None:
         config = self.manager.config
@@ -125,12 +128,17 @@ class SixtySevenScreen:
 
         if elapsed_ms >= self.countdown_ms + self.manager.config.sixty_seven_round_seconds * 1000:
             self._finish_round()
+        
+        if self.sparkles is not None:
+            self.sparkles.update(dt_ms)
 
     def render(self, surface: Any) -> None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
+        if self.sparkles is None:
+            self.sparkles = SparkleLayer(pygame, width, height, count=120)
         bg = scaled_asset_image(pygame, "sixseven_bg.PNG", (width, height))
         if bg is not None:
             surface.blit(bg, (0, 0))
@@ -195,6 +203,8 @@ class SixtySevenScreen:
 
         draw_bottom_rule(pygame, surface, height - 44, width)
         draw_text(surface, "SPACE STARTS / ESC HOME", fonts.small, theme.TEXT_MUTED, (42, height - 32))
+        if self.sparkles is not None:
+            self.sparkles.render(surface)
 
     def _clock_label(self) -> str:
         if self.started_at_ms is None:

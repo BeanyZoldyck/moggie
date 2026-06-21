@@ -8,6 +8,7 @@ from app.ui import theme
 from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text, scaled_asset_image
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.face_overlay_renderer import FaceOverlayRenderer
+from app.ui.sparkle_layer import SparkleLayer
 
 
 def _pygame() -> Any:
@@ -52,6 +53,7 @@ class MogMirrorScreen:
         self.message = "CENTER BOTH FACES IN THEIR LANES"
         self.manual_override = False
         self._entered_at_ms: int | None = None
+        self.sparkles = None
 
     def on_enter(self, **_: Any) -> None:
         names = self.manager.state.player_names or ["Player 1", "Player 2"]
@@ -102,12 +104,16 @@ class MogMirrorScreen:
         self._tick_display_scores(now_ms, dt_ms)
         if now_ms - self.started_at_ms >= self.live_score_duration_ms:
             self._finish_round()
+        if self.sparkles is not None:
+            self.sparkles.update(dt_ms)
 
     def render(self, surface: Any) -> None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
+        if self.sparkles is None:
+            self.sparkles = SparkleLayer(pygame, width, height, count=120)
         bg = scaled_asset_image(pygame, "mog_mirror_bg.png", (width, height))
         if bg is not None:
             surface.blit(bg, (0, 0))
@@ -169,6 +175,8 @@ class MogMirrorScreen:
             help_text = "SPACE MANUAL CAPTURE / ESC HOME"
         draw_text(surface, self.message, fonts.small, theme.TEXT_MUTED, (42, height - 32), max_width=width // 2)
         draw_text(surface, help_text, fonts.small, theme.TEXT_MUTED, (width - 42, height - 32), anchor="topright")
+        if self.sparkles is not None:
+            self.sparkles.render(surface)
 
         ##if self.phase == PHASE_GENERATING:
             ##self._render_generating_overlay(surface, width, height)

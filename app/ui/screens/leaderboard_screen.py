@@ -12,6 +12,8 @@ from app.ui.render_utils import (
     scaled_asset_image,
 )
 
+from app.ui.sparkle_layer import SparkleLayer
+
 
 def _pygame() -> Any:
     import pygame
@@ -28,6 +30,7 @@ class LeaderboardScreen:
         self.game_index = 0
         self.entries: list[dict[str, Any]] = []
         self.error: str | None = None
+        self.sparkles = None
 
     def on_enter(self, **_: Any) -> None:
         self.game_index = game_index(self.manager.state.selected_game_type)
@@ -47,6 +50,8 @@ class LeaderboardScreen:
             self.manager.go_to("player_setup")
 
     def update(self, now_ms: int, dt_ms: int) -> None:
+        if self.sparkles is not None:
+            self.sparkles.update(dt_ms)
         return None
 
     def render(self, surface: Any) -> None:
@@ -54,6 +59,8 @@ class LeaderboardScreen:
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
+        if self.sparkles is None:
+            self.sparkles = SparkleLayer(pygame, width, height, count=120)
         bg = scaled_asset_image(pygame, "leaderboard_bg.png", (width, height))
         if bg is not None:
             surface.blit(bg, (0, 0))
@@ -104,6 +111,8 @@ class LeaderboardScreen:
 
         draw_bottom_rule(pygame, surface, height - 44, width)
         draw_text(surface, "MOGGIE", fonts.small, theme.TEXT_MUTED, (48, height - 32))
+        if self.sparkles is not None:
+            self.sparkles.render(surface)
 
     def _move_game(self, direction: int) -> None:
         self.game_index = (self.game_index + direction) % len(GAMES)

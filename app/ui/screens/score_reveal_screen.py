@@ -24,6 +24,8 @@ from app.ui.render_utils import (
 from app.util.images import encode_bgr_jpeg
 from app.util.video_playback import LoopingVideoPlayer, download_in_background
 
+from app.ui.sparkle_layer import SparkleLayer
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -46,10 +48,7 @@ class ScoreRevealScreen:
         self.replay_player: LoopingVideoPlayer | None = None
         self.replay_error = ""
         self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
-        self.recap_url = ""
-        self.social_prompt_started = False
-        self.social_status_text = ""
-        self._social_queue: "queue.Queue[tuple[str, dict[str, Any]]]" = queue.Queue()
+        self.sparkles = None
 
     def on_enter(self, **_: Any) -> None:
         active_job_ids = {
@@ -107,6 +106,8 @@ class ScoreRevealScreen:
         self._drain_social_queue()
         if self.replay_player is not None:
             self.replay_player.advance(now_ms)
+        if self.sparkles is not None:
+            self.sparkles.update(dt_ms)
 
     def handle_app_event(self, event: AppEvent) -> None:
         if event.type != EVENT_AI_JOB_UPDATE:
@@ -350,6 +351,9 @@ class ScoreRevealScreen:
         fonts = self.fonts
         width, height = surface.get_size()
 
+        if self.sparkles is None:
+            self.sparkles = SparkleLayer(pygame, width, height, count=120)
+
         game = game_for_type(self.manager.state.selected_game_type)
         rows = self.manager.state.reveal_rows or [
             {"display_name": name, "score": None, "label": "READY"}
@@ -377,6 +381,9 @@ class ScoreRevealScreen:
             self._render_replay_video(pygame, surface, fonts, width, height)
         elif self.replay_phase in {"generating", "downloading"}:
             self._render_replay_generating(pygame, surface, fonts, width, height)
+        
+        if self.sparkles is not None:
+            self.sparkles.render(surface)
 
     def _render_replay_hint(self, surface: Any, fonts: FontSet, width: int, height: int) -> None:
         nav = "ENTER HOME / L BOARD"

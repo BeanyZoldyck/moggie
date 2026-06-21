@@ -16,6 +16,8 @@ from app.ui.render_utils import (
     scaled_asset_image
 )
 
+from app.ui.sparkle_layer import SparkleLayer
+
 
 def _pygame() -> Any:
     import pygame
@@ -33,6 +35,7 @@ class PlayerSetupScreen:
         self.values: list[str] = []
         self.cursor_visible = True
         self._last_cursor_flip_ms = 0
+        self.sparkles = None
 
     def on_enter(self, **_: Any) -> None:
         count = player_count_for_game(self.manager.state.selected_game_type, self.manager.config)
@@ -73,12 +76,16 @@ class PlayerSetupScreen:
         if now_ms - self._last_cursor_flip_ms > 430:
             self.cursor_visible = not self.cursor_visible
             self._last_cursor_flip_ms = now_ms
+        if self.sparkles is not None:
+            self.sparkles.update(dt_ms)
 
     def render(self, surface: Any) -> None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
+        if self.sparkles is None:
+            self.sparkles = SparkleLayer(pygame, width, height, count=120)
         bg = scaled_asset_image(pygame, "player_name_bg.png", (width, height))
         if bg is not None:
             surface.blit(bg, (0, 0))
@@ -135,6 +142,8 @@ class PlayerSetupScreen:
 
         draw_bottom_rule(pygame, surface, height - 44, width)
         draw_text(surface, "MOGGIE", fonts.small, theme.TEXT_MUTED, (48, height - 32))
+        if self.sparkles is not None:
+            self.sparkles.render(surface)
 
     def _move_field(self, direction: int) -> None:
         self.active_field = (self.active_field + direction) % len(self.values)
