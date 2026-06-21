@@ -181,13 +181,14 @@ class MogMirrorScreen:
         else:
             surface.fill(theme.BACKGROUND)
 
-        pygame.draw.rect(surface, (24, 31, 24), pygame.Rect(0, 0, width, 104))
-        pygame.draw.rect(surface, theme.ACCENT, pygame.Rect(0, 104, width, 4))
-        draw_text(surface, "MOG MIRROR", fonts.title, theme.TEXT, (42, 22), max_width=width - 360)
-        draw_text(surface, self._clock_label(), fonts.card_title, theme.ACCENT, (width - 48, 34), anchor="topright")
+        camera_rect = pygame.Rect(
+            90,
+            135,
+            1100,
+            330
+        )
 
-        camera_rect = pygame.Rect(42, 132, width - 84, max(260, height - 328))
-        frame = self._frame_to_show()
+        frame = self.manager.camera_service.latest_display_frame() if self.manager.camera_service is not None else None
         diagnostic = (
             self.manager.camera_service.diagnostic_message
             if self.manager.camera_service is not None
@@ -228,9 +229,27 @@ class MogMirrorScreen:
                 draw_text(surface, "MOG SCORE", fonts.small, theme.TEXT_MUTED, (rect.right - 24, rect.top + 18), anchor="topright")
                 self._draw_live_score(pygame, surface, rect, lane, color, now_ms)
 
+        for index, lane in enumerate(self.lanes):
+            color = (255, 60, 160) if index == 0 else (0, 130, 255)
+
+            score_text = "--" if lane.live_score is None else f"{lane.live_score}"
+
+            if index == 0:
+                score_pos = (int(width * 0.25), panel_y)
+            else:
+                score_pos = (int(width * 0.74), panel_y)
+
+            draw_text(
+                surface,
+                score_text,
+                fonts.title,
+                color,
+                score_pos,
+                anchor="center",
+            )
         countdown = self._countdown_label()
         if countdown is not None:
-            draw_text(surface, countdown, fonts.masthead, theme.ACCENT, (width // 2, height // 2), anchor="center")
+            draw_text(surface, countdown, fonts.title, (255, 220, 40), (width // 2, height // 2 - 70), anchor="center")
 
         draw_bottom_rule(pygame, surface, height - 44, width)
         help_text = "SPACE CAPTURES / ESC HOME"
@@ -467,7 +486,11 @@ class MogMirrorScreen:
         for lane in self.lanes:
             lane.face = faces_by_zone.get(lane.zone)
         if self.started_at_ms is None:
-            self.message = "READY TO CAPTURE" if self._ready_to_capture() else "CENTER BOTH FACES IN THEIR LANES"
+            self.message = (
+        "READY TO CAPTURE"
+        if self._ready_to_capture()
+        else "CENTER BOTH FACES IN THEIR LANES"
+        )
 
     def _faces(self) -> list[dict[str, Any]]:
         state = self.manager.cv_service.latest_state() if self.manager.cv_service is not None else None

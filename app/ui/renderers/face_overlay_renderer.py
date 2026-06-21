@@ -46,8 +46,13 @@ class FaceOverlayRenderer:
             if not isinstance(bbox, dict):
                 continue
             zone = str(face.get("zone", ""))
-            color = theme.PLAYER_COLORS[0] if zone == "p1" else theme.PLAYER_COLORS[1]
-            box = self._bbox_to_screen(pygame, rect, bbox, zone=zone, point_mapper=point_mapper)
+            color = (255, 60, 160) if zone == "p1" else (0, 130, 255)            
+            box = pygame.Rect(
+                rect.left + int(float(bbox.get("x", 0.0)) * rect.width),
+                rect.top + int(float(bbox.get("y", 0.0)) * rect.height),
+                max(6, int(float(bbox.get("width", 0.0)) * rect.width)),
+                max(6, int(float(bbox.get("height", 0.0)) * rect.height)),
+            )
             pygame.draw.rect(surface, color, box, 3, border_radius=6)
             self._draw_face_geometry(pygame, surface, rect, face, point_mapper=point_mapper)
             label = "P1 FACE" if zone == "p1" else "P2 FACE"
@@ -64,12 +69,13 @@ class FaceOverlayRenderer:
             for screen_point in [self._to_screen(rect, point, zone=str(face.get("zone", "")), point_mapper=point_mapper)]
             if screen_point is not None
         }
-        geometry_green = (68, 255, 126)
-        shadow = (8, 34, 18)
+        zone = str(face.get("zone", ""))
+        geometry_color = (255, 60, 160) if zone == "p1" else (0, 130, 255)
+        shadow = (30, 10, 50)
         for start, end in FACE_GEOMETRY_CONNECTIONS:
             if start in points and end in points:
                 pygame.draw.line(surface, shadow, points[start], points[end], 5)
-                pygame.draw.line(surface, geometry_green, points[start], points[end], 2)
+                pygame.draw.line(surface, geometry_color, points[start], points[end], 2)
         for point in points.values():
             pygame.draw.circle(surface, shadow, point, 5)
             pygame.draw.circle(surface, geometry_green, point, 3)

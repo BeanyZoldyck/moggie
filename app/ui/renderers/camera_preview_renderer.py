@@ -91,10 +91,10 @@ class CameraPreviewRenderer:
             },
         ]
 
-        pygame.draw.rect(surface, theme.ACCENT, left_rect, 2, border_radius=4)
-        pygame.draw.rect(surface, theme.WARNING, right_rect, 2, border_radius=4)
-        self._draw_zone_label(surface, "P1", (left_rect.left + 10, left_rect.top + 8), theme.ACCENT)
-        self._draw_zone_label(surface, "P2", (right_rect.right - 10, right_rect.top + 8), theme.WARNING, anchor="topright")
+        pygame.draw.rect(surface, (255, 60, 160), left_rect, 3, border_radius=4)
+        pygame.draw.rect(surface, (0, 130, 255), right_rect, 3, border_radius=4)
+        self._draw_zone_label(surface, "P1", (left_rect.left + 10, left_rect.top + 8), (255, 60, 160))
+        self._draw_zone_label(surface, "P2", (right_rect.right - 10, right_rect.top + 8), (0, 130, 255), anchor="topright")
         return pygame.Rect(rect.left, rect.top, rect.width, rect.height)
 
     def _blit_crop_fill(self, pygame: Any, surface: Any, frame: Any, dest: Any) -> tuple[int, int, int, int]:

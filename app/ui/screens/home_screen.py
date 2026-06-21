@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from app.core.game_catalog import GAMES, game_index, player_count_for_game
+from app.core.game_catalog import GAMES, game_index 
 from app.ui import theme
 from app.ui.render_utils import (
     FontSet,
@@ -17,8 +17,6 @@ from app.ui.render_utils import (
     draw_wrapped_text,
     scaled_asset_image,
 )
-from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
-
 
 def _pygame() -> Any:
     import pygame
@@ -39,7 +37,6 @@ class HomeScreen:
         self.game_index = 0
         self.action_index = 0
         self.fonts: FontSet | None = None
-        self.preview_renderer = CameraPreviewRenderer()
 
     def on_enter(self, **_: Any) -> None:
         self.game_index = game_index(self.manager.state.selected_game_type)
@@ -91,44 +88,7 @@ class HomeScreen:
             if rect is None:
                 rect = self._render_fallback_card(pygame, surface, index, game, card_centers[index], size, fonts)
 
-            player_count = player_count_for_game(game.game_type, self.manager.config)
-            mode = "SOLO" if player_count == 1 else "1V1"
-            draw_text(
-                surface,
-                mode,
-                fonts.mono,
-                game.accent if index == self.game_index else theme.TEXT_MUTED,
-                (rect.centerx, rect.bottom - int(44 * scale)),
-                anchor="center",
-                max_width=max(80, rect.width - 54),
-            )
-
         active_game = GAMES[self.game_index]
-        preview_w = min(int(260 * scale), max(180, width // 4))
-        preview_h = min(int(118 * scale), max(82, height // 7))
-        preview_rect = pygame.Rect(34, height - preview_h - 38, preview_w, preview_h)
-        camera_service = self.manager.camera_service
-        frame = camera_service.latest_display_frame() if camera_service is not None else None
-        diagnostic = (
-            camera_service.diagnostic_message
-            if camera_service is not None
-            else f"Camera index {self.manager.config.camera_index} is not configured."
-        )
-        self.preview_renderer.render(
-            surface,
-            preview_rect,
-            frame_bgr=frame,
-            diagnostic=diagnostic,
-            show_divider=self.manager.config.show_zone_divider,
-        )
-        draw_text(surface, "LIVE CAMERA", fonts.small, theme.TEXT_MUTED, (preview_rect.right + 14, preview_rect.top + 6))
-        draw_text(
-            surface,
-            f"INDEX {self.manager.config.camera_index}",
-            fonts.mono,
-            theme.ACCENT if frame is not None else theme.ERROR,
-            (preview_rect.right + 14, preview_rect.top + 32),
-        )
 
         play_size = (
             max(190, int((350 if self.action_index == 0 else 320) * scale)),
@@ -165,12 +125,12 @@ class HomeScreen:
             pygame,
             surface,
             "moo_deng_pixel.png",
-            (min(width - mascot_size[0] // 3, int(width * 0.88)), int(height * 0.58) + bounce),
+            (min(width - mascot_size[0] // 3, int(width * 0.88)), int(height * 0.70) + bounce),
             mascot_size,
         )
 
         draw_bottom_rule(pygame, surface, height - 34, width)
-        draw_text(surface, "SPACE TO SELECT", fonts.small, theme.TEXT, (width // 2, height - 24), anchor="center")
+        draw_text(surface, "SPACE TO SELECT", fonts.small, theme.TEXT, (width // 2, height - 140), anchor="center")
 
     def _render_fallback_card(
         self,
@@ -215,6 +175,13 @@ class HomeScreen:
     def _activate_action(self) -> None:
         self.manager.state.selected_game_type = GAMES[self.game_index].game_type
         if self.action_index == 0:
-            self.manager.go_to("player_setup")
+            selected_game = GAMES[self.game_index].game_type
+
+            if selected_game == "mog_mirror":
+                self.manager.go_to("mog_mirror")
+            elif selected_game == "sixty_seven":
+                self.manager.go_to("sixty_seven")
+            elif selected_game == "emoji_face_match":
+                self.manager.go_to("emoji_face_match")
         else:
             self.manager.go_to("leaderboard")
