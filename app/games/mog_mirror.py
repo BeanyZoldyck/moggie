@@ -25,15 +25,15 @@ class MogMirrorGame:
 
 # Prompt for the start-of-game "mog avatar" image-to-video pass (fal.ai Pika).
 MOG_AVATAR_PROMPT = (
-    "Transform this person into their most 'mogged' version: a chiseled, razor-sharp jawline, "
+    "Transform this person into their most 'mogged' anime version: a chiseled, razor-sharp jawline, "
     "intense hunter eyes with a confident slight squint, flawless facial symmetry and ideal "
     "facial thirds, high cheekbones and clean skin, hyper-attractive and cinematic. Keep their "
-    "identity clearly recognizable as the same person. Subtle confident head movement, looking "
+    "identity clearly recognizable as the same person, with the same clothing color, hairstyles, etc. Subtle confident head movement, looking "
     "straight at the camera, dramatic studio lighting."
 )
 MOG_AVATAR_NEGATIVE_PROMPT = (
     "distorted face, deformed features, extra faces, multiple people, warped jaw, asymmetric, "
-    "blurry, low quality, identity change, different person, cartoon, disfigured, glitch"
+    "blurry, low quality, identity change, different person, cartoon, disfigured, glitch, changed ethnicity/race"
 )
 
 
@@ -68,7 +68,9 @@ def score_aura(
         modifier += int(centered_x * 5)
         modifier += int(centered_y * 3)
         modifier += int(_facial_geometry_score(face) * 20) - 13
-        signature = f"{confidence:.3f}:{center_x:.3f}:{center_y:.3f}:{box_w:.3f}:{box_h:.3f}".encode("utf-8")
+        signature = f"{confidence:.3f}:{center_x:.3f}:{center_y:.3f}:{box_w:.3f}:{box_h:.3f}".encode(
+            "utf-8"
+        )
         face_digest = hashlib.sha256(signature + seed).digest()
         if sample_ms is None:
             modifier += face_digest[0] % 9 - 4
@@ -119,9 +121,21 @@ def _facial_geometry_score(face: Mapping[str, Any]) -> float:
     )
 
     symmetry_errors = [
-        abs(_distance_x(left_eye_outer, feature_mid_x) - _distance_x(right_eye_outer, feature_mid_x)) / face_width,
-        abs(_distance_x(left_eye_inner, feature_mid_x) - _distance_x(right_eye_inner, feature_mid_x)) / face_width,
-        abs(_distance_x(mouth_left, feature_mid_x) - _distance_x(mouth_right, feature_mid_x)) / face_width,
+        abs(
+            _distance_x(left_eye_outer, feature_mid_x)
+            - _distance_x(right_eye_outer, feature_mid_x)
+        )
+        / face_width,
+        abs(
+            _distance_x(left_eye_inner, feature_mid_x)
+            - _distance_x(right_eye_inner, feature_mid_x)
+        )
+        / face_width,
+        abs(
+            _distance_x(mouth_left, feature_mid_x)
+            - _distance_x(mouth_right, feature_mid_x)
+        )
+        / face_width,
         abs((nose_tip["x"] - feature_mid_x) / face_width) if nose_tip else 0.18,
         abs((chin["x"] - feature_mid_x) / face_width) if chin else 0.18,
     ]
@@ -134,8 +148,12 @@ def _facial_geometry_score(face: Mapping[str, Any]) -> float:
     eye_spacing = _clamp(1.0 - abs(eye_spacing_ratio - 0.28) * 5.8)
     eye_balance = _clamp(1.0 - abs(eye_band_ratio - 0.70) * 2.6)
 
-    jawline = _jawline_score(chin, left_cheek, right_cheek, mouth_center, face_width, face_height)
-    return _clamp(symmetry * 0.42 + jawline * 0.30 + eye_spacing * 0.20 + eye_balance * 0.08)
+    jawline = _jawline_score(
+        chin, left_cheek, right_cheek, mouth_center, face_width, face_height
+    )
+    return _clamp(
+        symmetry * 0.42 + jawline * 0.30 + eye_spacing * 0.20 + eye_balance * 0.08
+    )
 
 
 def _bbox_geometry_score(face: Mapping[str, Any]) -> float:
@@ -162,7 +180,11 @@ def _jawline_score(
         return 0.46
     jaw_width = _distance(left_cheek, right_cheek)
     taper = jaw_width / face_width if face_width > 0.0 else 0.0
-    chin_drop = (chin["y"] - mouth_center["y"]) / face_height if mouth_center is not None and face_height > 0.0 else 0.0
+    chin_drop = (
+        (chin["y"] - mouth_center["y"]) / face_height
+        if mouth_center is not None and face_height > 0.0
+        else 0.0
+    )
     sharp_taper = _clamp(1.0 - abs(taper - 0.84) * 2.8)
     sharp_chin = _clamp(1.0 - abs(chin_drop - 0.31) * 5.0)
     return _clamp(sharp_taper * 0.45 + sharp_chin * 0.55)
@@ -177,10 +199,15 @@ def _point(value: Any) -> Mapping[str, float] | None:
         return None
 
 
-def _midpoint(first: Mapping[str, float] | None, second: Mapping[str, float] | None) -> Mapping[str, float] | None:
+def _midpoint(
+    first: Mapping[str, float] | None, second: Mapping[str, float] | None
+) -> Mapping[str, float] | None:
     if first is None or second is None:
         return None
-    return {"x": (first["x"] + second["x"]) / 2.0, "y": (first["y"] + second["y"]) / 2.0}
+    return {
+        "x": (first["x"] + second["x"]) / 2.0,
+        "y": (first["y"] + second["y"]) / 2.0,
+    }
 
 
 def _average(values: list[float | None]) -> float:
@@ -190,13 +217,17 @@ def _average(values: list[float | None]) -> float:
     return sum(valid) / len(valid)
 
 
-def _average_x(first: Mapping[str, float] | None, second: Mapping[str, float] | None) -> float | None:
+def _average_x(
+    first: Mapping[str, float] | None, second: Mapping[str, float] | None
+) -> float | None:
     if first is None or second is None:
         return None
     return (first["x"] + second["x"]) / 2.0
 
 
-def _distance(first: Mapping[str, float] | None, second: Mapping[str, float] | None) -> float:
+def _distance(
+    first: Mapping[str, float] | None, second: Mapping[str, float] | None
+) -> float:
     if first is None or second is None:
         return 0.0
     return hypot(first["x"] - second["x"], first["y"] - second["y"])
@@ -226,7 +257,9 @@ def label_for_aura(score: int, *, winner: bool, face_detected: bool) -> str:
     return "WARMUP GLOW"
 
 
-def crop_upper_body(frame_bgr: Any | None, face: dict[str, Any] | None, zone: str) -> Any | None:
+def crop_upper_body(
+    frame_bgr: Any | None, face: dict[str, Any] | None, zone: str
+) -> Any | None:
     if frame_bgr is None:
         return None
     height, width = frame_bgr.shape[:2]

@@ -88,6 +88,7 @@ class MogMirrorScreen:
         self.finished = False
         self.message = "CENTER BOTH FACES IN THEIR LANES"
         self.manual_override = False
+        self._entered_at_ms: int | None = None
         self._reset_avatar_state()
 
     def _reset_avatar_state(self) -> None:
@@ -111,6 +112,8 @@ class MogMirrorScreen:
             self.manager.go_to("home")
         elif event.key in {pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER}:
             if self.phase != PHASE_READY:
+                return
+            if self._entered_at_ms is not None and pygame.time.get_ticks() - self._entered_at_ms < 300:
                 return
             if self._ready_to_capture() or self.manager.config.allow_manual_start_override:
                 self.manual_override = not self._ready_to_capture()
@@ -144,6 +147,8 @@ class MogMirrorScreen:
             self.avatar_status[zone] = "failed"
 
     def update(self, now_ms: int, dt_ms: int) -> None:
+        if self._entered_at_ms is None:
+            self._entered_at_ms = now_ms
         if self.phase == PHASE_READY:
             self._sync_faces()
             return
@@ -243,6 +248,8 @@ class MogMirrorScreen:
         service = self.manager.ai_job_service
         snapshot = self.manager.camera_service.snapshot() if self.manager.camera_service is not None else None
         frame = snapshot.display_bgr if snapshot is not None else None
+        if frame is None and self.manager.camera_service is not None:
+            frame = self.manager.camera_service.latest_display_frame()
         submitted_any = False
         for lane in self.lanes:
             self.photo_faces[lane.zone] = lane.face
