@@ -198,7 +198,7 @@ print("QnxCamera import OK")
 PY
 ```
 
-If MediaPipe causes protobuf or sounddevice issues on QNX, keep the current launcher defaults:
+If MediaPipe Hands causes protobuf or sounddevice issues on QNX, temporarily switch only hand tracking to the OpenCV fallback:
 
 ```sh
 PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
@@ -257,7 +257,7 @@ MOGGIE_QNX_CAMERA_UNIT=1
 MOGGIE_QNX_CAMERA_DECIMATE=3
 MOGGIE_CAMERA_GAIN=2.25
 MOGGIE_CAMERA_BRIGHTNESS=42
-MOGGIE_HAND_TRACKING_BACKEND=simple
+MOGGIE_HAND_TRACKING_BACKEND=mediapipe
 MOGGIE_CV_ENABLE_FACE_DETECTION=true
 MOGGIE_FACE_TRACKING_BACKEND=mediapipe
 MOGGIE_ENABLE_PIKA=false
