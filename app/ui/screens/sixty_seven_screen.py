@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,7 +9,6 @@ from app.cv.sixty_seven_counter import SixtySevenCounter
 from app.ui import theme
 from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text, scaled_asset_image
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
-from app.ui.renderers.hand_overlay_renderer import HandOverlayRenderer
 from app.util.images import encode_bgr_jpeg
 
 
@@ -36,7 +36,6 @@ class SixtySevenScreen:
         self.manager = manager
         self.fonts: FontSet | None = None
         self.preview_renderer = CameraPreviewRenderer()
-        self.hand_renderer = HandOverlayRenderer()
         self.lanes: list[PlayerLane] = []
         self.session_id: str | None = None
         self.started_at_ms: int | None = None
@@ -158,15 +157,7 @@ class SixtySevenScreen:
         stale = any(lane.counter.stale for lane in self.lanes)
         effect_rect = camera_rect.inflate(-6, -6)
         now_ms = pygame.time.get_ticks()
-        self._render_tracking_fx(pygame, surface, effect_rect, hands, now_ms)
-        self.hand_renderer.render(
-            surface,
-            effect_rect,
-            hands,
-            stale=stale,
-            split_x=self.manager.config.zone_split_x,
-            point_mapper=self.preview_renderer.point_to_screen,
-        )
+        self._render_tracking_fx(pygame, surface, effect_rect, hands, now_ms, stale=stale)
 
         panel_y = height - 174
         lane_w = (width - 108 - 24 * (len(self.lanes) - 1)) // len(self.lanes)
@@ -203,62 +194,110 @@ class SixtySevenScreen:
             return None
         return str(max(1, (self.countdown_ms - elapsed_ms + 999) // 1000))
 
-    def _render_tracking_fx(self, pygame: Any, surface: Any, rect: Any, hands: list[dict[str, Any]], now_ms: int) -> None:
+    def _render_tracking_fx(
+        self,
+        pygame: Any,
+        surface: Any,
+        rect: Any,
+        hands: list[dict[str, Any]],
+        now_ms: int,
+        *,
+        stale: bool = False,
+    ) -> None:
         lane_by_zone = {lane.zone: lane for lane in self.lanes}
-        divider_x = rect.left + int(rect.width * self.manager.config.zone_split_x)
 
-        for lane in self.lanes:
-            heat = self._speed_heat(lane)
-            if heat <= 0.04:
-                continue
-            zone_rect = (
-                pygame.Rect(rect.left, rect.top, max(1, divider_x - rect.left), rect.height)
-                if lane.zone == "p1"
-                else pygame.Rect(divider_x, rect.top, max(1, rect.right - divider_x), rect.height)
-            )
-            color = self._heat_color(heat)
-            bar_w = int(zone_rect.width * min(1.0, heat))
-            bar_y = zone_rect.top + 10
-            if lane.zone == "p1":
-                pygame.draw.rect(surface, color, pygame.Rect(zone_rect.left + 12, bar_y, bar_w, 4))
-            else:
-                pygame.draw.rect(surface, color, pygame.Rect(zone_rect.right - 12 - bar_w, bar_y, bar_w, 4))
-            for offset in (0, 18, 36):
-                phase_x = int((now_ms // 8 + offset) % max(1, zone_rect.width))
-                x = zone_rect.left + phase_x if lane.zone == "p1" else zone_rect.right - phase_x
-                pygame.draw.line(surface, (80, 60, 54), (x, zone_rect.top + 22), (x - 26 if lane.zone == "p1" else x + 26, zone_rect.top + 34), 1)
+        if stale:
+            pygame.draw.rect(surface, (74, 40, 46), rect, 4)
+            draw_text(surface, "STALE TRACKING", self.fonts.small, theme.ERROR, (rect.left + 16, rect.bottom - 34))
+        elif not hands:
+            draw_text(surface, "SHOW HANDS", self.fonts.small, (80, 176, 100), rect.center, anchor="center")
 
-        for hand in hands[:8]:
-            palm = hand.get("palm_center")
-            if not isinstance(palm, dict):
-                continue
+        for hand_index, hand in enumerate(hands[:8]):
             zone = str(hand.get("zone", ""))
             lane = lane_by_zone.get(zone)
-            heat = self._speed_heat(lane) if lane is not None else 0.0
-            if heat <= 0.03:
-                continue
-            center = self.preview_renderer.point_to_screen(palm, zone=zone, fallback_rect=rect)
-            if center is None:
-                continue
+            heat = max(0.18, self._speed_heat(lane) if lane is not None else 0.0)
             color = self._heat_color(heat)
-            direction = -1 if zone == "p2" else 1
-            length = int(18 + heat * 42)
-            spread = int(8 + heat * 18)
-            for index in range(3):
-                y_offset = (index - 1) * spread
-                pygame.draw.line(
-                    surface,
-                    color if index == 1 else (102, 82, 70),
-                    (center[0] - direction * length, center[1] + y_offset),
-                    (center[0] + direction * 8, center[1] + y_offset // 2),
-                    2 if index == 1 else 1,
-                )
-            radius = int(16 + heat * 24)
-            arc_rect = pygame.Rect(center[0] - radius, center[1] - radius, radius * 2, radius * 2)
-            start = ((now_ms // 90) % 8) * 0.35
-            pygame.draw.arc(surface, (94, 88, 82), arc_rect, start, start + 1.9, 2)
-            pygame.draw.line(surface, color, (center[0] - 7, center[1]), (center[0] + 7, center[1]), 2)
-            pygame.draw.line(surface, color, (center[0], center[1] - 7), (center[0], center[1] + 7), 2)
+            points = self._hand_orb_points(hand)
+            screen_points = [
+                (role, self.preview_renderer.point_to_screen(point, zone=zone, fallback_rect=rect))
+                for role, point in points
+            ]
+            screen_points = [(role, point) for role, point in screen_points if point is not None]
+            if not screen_points:
+                continue
+
+            for point_index, (role, point) in enumerate(screen_points):
+                pulse = 0.5 + 0.5 * math.sin(now_ms * 0.012 + point_index * 0.9 + hand_index * 1.6)
+                is_palm = role == "palm"
+                is_tip = role == "tip"
+                radius = 4 + int(pulse * 2 + heat * 3)
+                if is_palm:
+                    radius += 5
+                elif is_tip:
+                    radius += 3
+                halo = radius + 4 + int(heat * 6)
+                glow = self._dim_color(color, 0.42 if is_palm or is_tip else 0.30)
+                pygame.draw.circle(surface, glow, point, halo, 2)
+                pygame.draw.circle(surface, (28, 18, 22), point, radius + 2)
+                pygame.draw.circle(surface, color, point, radius)
+                if is_palm or is_tip:
+                    pygame.draw.circle(surface, theme.TEXT, point, max(2, radius // 3))
+
+                if role != "fill":
+                    for spark_index in range(2):
+                        angle = now_ms * 0.007 + point_index * 1.31 + spark_index * math.pi
+                        distance = radius + 7 + spark_index * 5
+                        spark = (
+                            int(point[0] + math.cos(angle) * distance),
+                            int(point[1] + math.sin(angle) * distance),
+                        )
+                        pygame.draw.circle(surface, self._dim_color(color, 0.65), spark, 2 + spark_index)
+
+            palm = hand.get("palm_center")
+            if isinstance(palm, dict):
+                center = self.preview_renderer.point_to_screen(palm, zone=zone, fallback_rect=rect)
+                if center is not None:
+                    ring = 20 + int(heat * 26 + (now_ms // 90 + hand_index * 5) % 9)
+                    pygame.draw.circle(surface, self._dim_color(color, 0.55), center, ring, 2)
+
+    def _hand_orb_points(self, hand: dict[str, Any]) -> list[tuple[str, dict[str, float]]]:
+        points: list[tuple[str, dict[str, float]]] = []
+        palm = hand.get("palm_center")
+        if isinstance(palm, dict):
+            points.append(("palm", {"x": float(palm["x"]), "y": float(palm["y"])}))
+
+        landmarks = hand.get("landmarks")
+        if isinstance(landmarks, list):
+            tip_indices = {4, 8, 12, 16, 20}
+            for index, point in enumerate(landmarks):
+                if not isinstance(point, dict):
+                    continue
+                role = "tip" if index in tip_indices else "landmark"
+                points.append((role, {"x": float(point["x"]), "y": float(point["y"])}))
+
+        bbox = hand.get("bbox")
+        if isinstance(bbox, dict) and len(points) < 12:
+            x = float(bbox.get("x", 0.0))
+            y = float(bbox.get("y", 0.0))
+            width = float(bbox.get("width", 0.0))
+            height = float(bbox.get("height", 0.0))
+            if width > 0.0 and height > 0.0:
+                center_x = x + width * 0.5
+                center_y = y + height * 0.5
+                for step in range(14):
+                    angle = step / 14.0 * math.tau
+                    points.append(
+                        (
+                            "fill",
+                            {
+                                "x": center_x + math.cos(angle) * width * 0.34,
+                                "y": center_y + math.sin(angle) * height * 0.36,
+                            },
+                        )
+                    )
+                for x_ratio in (0.24, 0.38, 0.50, 0.62, 0.76):
+                    points.append(("tip", {"x": x + width * x_ratio, "y": y + height * 0.08}))
+        return points
 
     def _draw_score(self, pygame: Any, surface: Any, rect: Any, lane: PlayerLane, fonts: FontSet) -> None:
         heat = self._speed_heat(lane)
@@ -307,6 +346,13 @@ class SixtySevenScreen:
             int(theme.WARNING[0] + (theme.ERROR[0] - theme.WARNING[0]) * blend),
             int(theme.WARNING[1] + (theme.ERROR[1] - theme.WARNING[1]) * blend),
             int(theme.WARNING[2] + (theme.ERROR[2] - theme.WARNING[2]) * blend),
+        )
+
+    def _dim_color(self, color: tuple[int, int, int], factor: float) -> tuple[int, int, int]:
+        return (
+            max(0, min(255, int(color[0] * factor))),
+            max(0, min(255, int(color[1] * factor))),
+            max(0, min(255, int(color[2] * factor))),
         )
 
     def _finish_round(self) -> None:
