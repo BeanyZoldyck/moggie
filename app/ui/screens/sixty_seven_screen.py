@@ -183,6 +183,15 @@ class SixtySevenScreen:
         if self._countdown_label():
             draw_text(surface, self._countdown_label(), fonts.masthead, theme.WARNING, (width // 2, height // 2), anchor="center")
 
+        draw_text(
+            surface,
+            self._clock_label(),
+            fonts.body,
+            theme.WARNING,
+            (width // 2, 520),
+            anchor="center",
+        )
+
         draw_bottom_rule(pygame, surface, height - 44, width)
         draw_text(surface, "SPACE STARTS / ESC HOME", fonts.small, theme.TEXT_MUTED, (42, height - 32))
 
@@ -305,7 +314,7 @@ class SixtySevenScreen:
                     "label": label,
                     "rank": score.rank,
                     "winner": score_value == high_score,
-                    "ai_job_ids": ai_job_ids,
+                    "ai_job_ids": [],
                 }
             )
         self.manager.leaderboard_service.complete_session(
