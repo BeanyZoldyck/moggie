@@ -206,6 +206,18 @@ class FalPikaClient:
                 value = decoded.get(key)
                 if value:
                     return str(value)
+        if isinstance(decoded, list):
+            parts: list[str] = []
+            for item in decoded:
+                if isinstance(item, dict):
+                    msg = item.get("msg") or item.get("message")
+                    err_type = item.get("type")
+                    if msg and err_type:
+                        parts.append(f"{err_type}: {msg}")
+                    elif msg:
+                        parts.append(str(msg))
+            if parts:
+                return "; ".join(parts)
         return None
 
     def _extract_video_url(self, result: dict[str, Any]) -> str | None:

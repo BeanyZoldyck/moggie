@@ -14,14 +14,26 @@ if str(ROOT) not in sys.path:
 from app.ai.fal_pika_client import FalPikaClient, FalPikaError
 from app.config import load_config
 
-
-DEFAULT_IMAGE_URL = "https://storage.googleapis.com/falserverless/model_tests/pika/cat.png"
 DEFAULT_PROMPT = "A dramatic arcade score reveal, camera push in, glossy neon energy, fast celebration."
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Submit a live Fal/Pika image-to-video smoke test.")
-    parser.add_argument("--image-url", default=DEFAULT_IMAGE_URL)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Submit a live Fal/Pika image-to-video smoke test. "
+            "By default sends an inline JPEG (same path as in-app recap generation). "
+            "Use --image-url only when the URL is publicly reachable by fal.ai."
+        )
+    )
+    parser.add_argument(
+        "--image-file",
+        type=Path,
+        help="Local image file to inline as base64 (recommended for smoke tests).",
+    )
+    parser.add_argument(
+        "--image-url",
+        help="Remote image URL fal.ai must fetch. Omit unless you know the URL is public.",
+    )
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--model", default="")
     parser.add_argument("--duration", default="")
@@ -53,9 +65,29 @@ def main() -> int:
             metadata[metadata_key] = value
 
     try:
-        result = asyncio.run(client.generate_video(args.image_url, args.prompt, metadata))
+        if args.image_url:
+            print("Using remote image URL (fal.ai must be able to download it)...")
+            result = asyncio.run(client.generate_video(args.image_url, args.prompt, metadata))
+        else:
+            image_bytes, mime_type = _load_image_bytes(args.image_file)
+            print(f"Using inline {mime_type} ({len(image_bytes)} bytes)...")
+            result = asyncio.run(
+                client.generate_video_from_image(image_bytes, mime_type, args.prompt, metadata)
+            )
     except FalPikaError as exc:
         print(f"Fal/Pika smoke test failed: {exc}", file=sys.stderr)
+        if "429" in str(exc):
+            print(
+                "HTTP 429 means fal.ai rate-limited this API key. Wait a minute and retry, "
+                "or check usage/credits at https://fal.ai/dashboard.",
+                file=sys.stderr,
+            )
+        if "file_download_error" in str(exc):
+            print(
+                "file_download_error means fal.ai could not fetch your image URL. "
+                "Retry without --image-url so the smoke test inlines a local JPEG instead.",
+                file=sys.stderr,
+            )
         return 1
     except TimeoutError as exc:
         print(f"Fal/Pika smoke test timed out: {exc}", file=sys.stderr)
@@ -66,6 +98,45 @@ def main() -> int:
     print(f"request_id: {result['request_id']}")
     print(f"video_url: {result['video_url']}")
     return 0
+
+
+def _load_image_bytes(image_file: Path | None) -> tuple[bytes, str]:
+    if image_file is not None:
+        data = image_file.read_bytes()
+        suffix = image_file.suffix.lower()
+        mime = "image/png" if suffix == ".png" else "image/jpeg"
+        if not data:
+            raise FalPikaError(f"Image file is empty: {image_file}")
+        return data, mime
+    return _synthetic_jpeg_bytes(), "image/jpeg"
+
+
+def _synthetic_jpeg_bytes() -> bytes:
+    try:
+        import cv2
+        import numpy as np
+
+        frame = np.zeros((240, 320, 3), dtype=np.uint8)
+        frame[:, :] = (28, 64, 120)
+        cv2.putText(
+            frame,
+            "MOGGIE SMOKE",
+            (24, 120),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.9,
+            (255, 220, 80),
+            2,
+            cv2.LINE_AA,
+        )
+        ok, encoded = cv2.imencode(".jpg", frame)
+        if ok:
+            return encoded.tobytes()
+    except Exception:
+        pass
+    raise FalPikaError(
+        "Could not build a synthetic JPEG for the smoke test. "
+        "Install opencv-python or pass --image-file path/to/frame.jpg"
+    )
 
 
 def _print_status(job_id: str, status: str, metadata: dict[str, Any]) -> None:
