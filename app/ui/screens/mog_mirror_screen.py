@@ -555,9 +555,6 @@ class MogMirrorScreen:
                 pygame.draw.line(surface, (72, 88, 65), (x, box.top - 14), (x + 20, box.top - 4), 1)
 
     def _draw_live_score(self, pygame: Any, surface: Any, rect: Any, lane: MirrorLane, color: tuple[int, int, int], now_ms: int) -> None:
-        if lane.live_score is None:
-            draw_text(surface, "--", self.fonts.card_title, color, (rect.right - 24, rect.bottom - 54), anchor="midright")
-            return
         heat = self._lane_heat(lane)
         text_color = self._heat_color(heat, color)
         score_value = max(1, min(100, int(round(lane.display_score))))

@@ -268,7 +268,7 @@ class ScoreRevealScreen:
             draw_text(surface, f"P{index + 1}", fonts.body, border, (rect.left + 26, rect.top + 18))
             self._draw_row_details(surface, row, fonts, text_x, rect)
             score = "--" if row.get("score") is None else str(row["score"])
-            self._draw_score_pop(pygame, surface, score, fonts.card_title, theme.TEXT, (rect.right - 34, rect.centery), active=bool(row.get("winner")))
+            self._draw_score_pop(pygame, surface, score, fonts.card_title, theme.TEXT, (rect.right - 50, rect.centery), active=bool(row.get("winner")))
 
     def _render_mog_mirror_portraits(
         self,
