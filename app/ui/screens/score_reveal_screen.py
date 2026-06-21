@@ -210,14 +210,6 @@ class ScoreRevealScreen:
         else:
             self._render_score_rows(pygame, surface, rows, fonts, width)
 
-        button_y = height - 132
-        home_rect = pygame.Rect(width // 2 - 224, button_y, 196, 58)
-        board_rect = pygame.Rect(width // 2 + 28, button_y, 196, 58)
-        draw_button(pygame, surface, home_rect, "HOME", fonts.body, selected=True, accent=game.accent)
-        draw_button(pygame, surface, board_rect, "BOARD", fonts.body, selected=False, accent=game.accent)
-        draw_bottom_rule(pygame, surface, height - 44, width)
-        self._render_replay_hint(surface, fonts, width, height)
-
         if self.replay_phase == "ready":
             self._render_replay_video(pygame, surface, fonts, width, height)
         elif self.replay_phase in {"generating", "downloading"}:

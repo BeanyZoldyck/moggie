@@ -157,9 +157,6 @@ class MogMirrorScreen:
                 color,
                 now_ms,
             )
-            score_text = "--" if lane.live_score is None else f"{lane.live_score}"
-            score_pos = (int(width * 0.25), panel_y) if index == 0 else (int(width * 0.74), panel_y)
-            draw_text(surface, score_text, fonts.title, color, score_pos, anchor="center")
 
         countdown = self._countdown_label()
         if countdown is not None:
@@ -172,8 +169,8 @@ class MogMirrorScreen:
         draw_text(surface, self.message, fonts.small, theme.TEXT_MUTED, (42, height - 32), max_width=width // 2)
         draw_text(surface, help_text, fonts.small, theme.TEXT_MUTED, (width - 42, height - 32), anchor="topright")
 
-        if self.phase == PHASE_GENERATING:
-            self._render_generating_overlay(surface, width, height)
+        ##if self.phase == PHASE_GENERATING:
+            ##self._render_generating_overlay(surface, width, height)
 
     # ------------------------------------------------------------------
     # Avatar mode
