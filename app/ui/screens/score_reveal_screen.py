@@ -46,6 +46,7 @@ class ScoreRevealScreen:
         self.replay_player: LoopingVideoPlayer | None = None
         self.replay_error = ""
         self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
+        self.recap_url = ""
         self.social_prompt_started = False
         self.social_status_text = ""
         self._social_queue: "queue.Queue[tuple[str, dict[str, Any]]]" = queue.Queue()
@@ -66,6 +67,7 @@ class ScoreRevealScreen:
         self.replay_job_id = None
         self.replay_error = ""
         self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
+        self.recap_url = ""
         self.social_prompt_started = False
         self.social_status_text = ""
         self._social_queue = queue.Queue()
@@ -79,15 +81,20 @@ class ScoreRevealScreen:
                 self._start_replay()
             return
         if self.replay_phase == "ready":
-            if event.key == pygame.K_x:
-                self._inject_social_input("x")
+            if event.key == pygame.K_t and not self.social_prompt_started:
+                if self.recap_url:
+                    self._start_social_prompt(self.recap_url)
                 return
-            if event.key == pygame.K_y:
-                self._inject_social_input("yes")
-                return
-            if event.key == pygame.K_n:
-                self._inject_social_input("no")
-                return
+            if self.social_prompt_started:
+                if event.key == pygame.K_x:
+                    self._inject_social_input("x")
+                    return
+                if event.key == pygame.K_y:
+                    self._inject_social_input("yes")
+                    return
+                if event.key == pygame.K_n:
+                    self._inject_social_input("no")
+                    return
         if event.key in {pygame.K_ESCAPE, pygame.K_h, pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE}:
             self._close_replay()
             self.manager.go_to("home")
@@ -186,9 +193,9 @@ class ScoreRevealScreen:
             self._close_replay()
             self.replay_player = player
             self.replay_phase = "ready"
+            self.recap_url = url
             saved_path = self._save_replay(path, url)
             LOGGER.info("Recap: ready — tmp=%s saved=%s url=%s", path, saved_path, url)
-            self._start_social_prompt(url)
 
     def _start_social_prompt(self, recap_url: str) -> None:
         if self.social_prompt_started:
@@ -213,8 +220,8 @@ class ScoreRevealScreen:
             winners=rows,
         )
         self.social_prompt_started = True
-        self.social_status_text = "Voice assistant: choose platform (press X), then confirm (Y/N)."
-        self.manager.speak_text("Where should I post this replay? Only X is available. Press X, then Y to post.")
+        self.social_status_text = "Voice assistant: choose platform (X), then confirm (Y/N)."
+        self.manager.speak_text("Where should I post this replay? Only X is available. Say X, then yes to post.")
         voice_agent.begin_social_prompt(
             context,
             on_status=lambda event, payload: self._social_queue.put((event, payload)),
@@ -379,7 +386,7 @@ class ScoreRevealScreen:
             elif self.replay_phase == "failed":
                 nav = f"REPLAY FAILED ({self.replay_error}) — G RETRY / ENTER HOME"
             elif self.replay_phase == "ready":
-                nav = "AI REPLAY READY / ENTER HOME / L BOARD"
+                nav = "AI REPLAY READY / T POST TO SOCIAL / ENTER HOME / L BOARD"
         draw_text(surface, nav, fonts.small, theme.TEXT_MUTED, (48, height - 32), max_width=width - 96)
 
     def _render_replay_generating(self, pygame: Any, surface: Any, fonts: FontSet, width: int, height: int) -> None:
@@ -402,7 +409,11 @@ class ScoreRevealScreen:
         video_rect = pygame.Rect(0, 0, min(width - 120, 960), min(height - 240, 560))
         video_rect.center = (width // 2, height // 2)
         self._draw_crop(pygame, surface, video_rect, frame, theme.ACCENT)
-        draw_text(surface, "ENTER / ESC HOME", fonts.small, theme.TEXT_MUTED, (width // 2, height - 70), anchor="center")
+        if self.social_prompt_started:
+            hint = "X PLATFORM / Y POST / N SKIP / ENTER HOME"
+        else:
+            hint = "T POST TO SOCIAL / ENTER HOME"
+        draw_text(surface, hint, fonts.small, theme.TEXT_MUTED, (width // 2, height - 70), anchor="center")
         if self.social_status_text:
             draw_text(
                 surface,
