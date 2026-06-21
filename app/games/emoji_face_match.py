@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from random import Random
-from typing import Mapping
+from typing import Callable, Mapping
 
 from app.cv.expression_features import classify_expression
 
@@ -24,6 +24,8 @@ EXPRESSION_GLYPHS = {
     "wink": ";)",
     "neutral": ":|",
 }
+
+ExpressionPredicate = Callable[[Mapping[str, float]], bool]
 
 
 @dataclass(frozen=True)
@@ -49,9 +51,59 @@ def expression_glyph(expression: str) -> str:
 
 
 def evaluate_match(target: str, features: Mapping[str, float] | None) -> EmojiMatchResult:
-    detected = classify_expression(dict(features or {}))
-    hit = detected == target
+    normalized = dict(features or {})
+    detected = classify_expression(normalized)
+    hit = EXPRESSION_PREDICATES.get(target, _target_unknown)(normalized)
     return EmojiMatchResult(target=target, detected=detected, hit=hit, points=100 if hit else 0)
+
+
+def _target_smile(features: Mapping[str, float]) -> bool:
+    return features.get("smile", 0.0) >= 0.55
+
+
+def _target_surprised(features: Mapping[str, float]) -> bool:
+    return features.get("mouth_open", 0.0) >= 0.70
+
+
+def _target_tongue_out(features: Mapping[str, float]) -> bool:
+    return features.get("tongue_out", 0.0) >= 0.65 and features.get("mouth_open", 0.0) >= 0.35
+
+
+def _target_eyes_closed(features: Mapping[str, float]) -> bool:
+    left_closed = features.get("left_eye_closed", 0.0)
+    right_closed = features.get("right_eye_closed", 0.0)
+    return max(features.get("eyes_closed", 0.0), min(left_closed, right_closed)) >= 0.60
+
+
+def _target_wink(features: Mapping[str, float]) -> bool:
+    left_closed = features.get("left_eye_closed", 0.0)
+    right_closed = features.get("right_eye_closed", 0.0)
+    return max(left_closed, right_closed, features.get("wink", 0.0)) >= 0.60 and abs(left_closed - right_closed) >= 0.22
+
+
+def _target_neutral(features: Mapping[str, float]) -> bool:
+    active = max(
+        features.get("smile", 0.0),
+        features.get("mouth_open", 0.0),
+        features.get("tongue_out", 0.0),
+        features.get("eyes_closed", 0.0),
+        features.get("wink", 0.0),
+    )
+    return active < 0.45
+
+
+def _target_unknown(_: Mapping[str, float]) -> bool:
+    return False
+
+
+EXPRESSION_PREDICATES: dict[str, ExpressionPredicate] = {
+    "smile": _target_smile,
+    "surprised": _target_surprised,
+    "tongue_out": _target_tongue_out,
+    "eyes_closed": _target_eyes_closed,
+    "wink": _target_wink,
+    "neutral": _target_neutral,
+}
 
 
 def build_expression_sequence(seed: str, count: int) -> list[str]:
