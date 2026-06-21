@@ -85,6 +85,20 @@ class ScoreRevealScreen:
         if not rows:
             rows = [{"display_name": "Player 1", "score": None, "label": "READY"}]
 
+        if game.game_type == "mog_mirror" and any(row.get("crop_bgr") is not None for row in rows):
+            self._render_mog_mirror_portraits(pygame, surface, rows, fonts, width, height)
+        else:
+            self._render_score_rows(pygame, surface, rows, fonts, width)
+
+        button_y = height - 132
+        home_rect = pygame.Rect(width // 2 - 224, button_y, 196, 58)
+        board_rect = pygame.Rect(width // 2 + 28, button_y, 196, 58)
+        draw_button(pygame, surface, home_rect, "HOME", fonts.body, selected=True, accent=game.accent)
+        draw_button(pygame, surface, board_rect, "BOARD", fonts.body, selected=False, accent=game.accent)
+        draw_bottom_rule(pygame, surface, height - 44, width)
+        draw_text(surface, "ENTER HOME / L BOARD", fonts.small, theme.TEXT_MUTED, (48, height - 32))
+
+    def _render_score_rows(self, pygame: Any, surface: Any, rows: list[dict[str, Any]], fonts: FontSet, width: int) -> None:
         panel_w = min(920, width - 96)
         panel_x = (width - panel_w) // 2
         row_h = 132 if any(row.get("crop_bgr") is not None for row in rows) else 104
@@ -100,13 +114,7 @@ class ScoreRevealScreen:
                 text_x = crop_rect.right + 24
             else:
                 text_x = rect.left + 86
-            draw_text(
-                surface,
-                f"P{index + 1}",
-                fonts.body,
-                border,
-                (rect.left + 26, rect.top + 18),
-            )
+            draw_text(surface, f"P{index + 1}", fonts.body, border, (rect.left + 26, rect.top + 18))
             winner_text = "WINNER" if row.get("winner") else str(row.get("label") or "")
             draw_text(
                 surface,
@@ -124,45 +132,83 @@ class ScoreRevealScreen:
                 (text_x, rect.top + 24),
                 max_width=rect.width - (text_x - rect.left) - 230,
             )
-            label = str(row.get("label") or "")
-            if label:
-                rank = row.get("rank")
-                label_text = f"{label} / RANK #{rank}" if rank else label
-                draw_text(
-                    surface,
-                    label_text,
-                    fonts.small,
-                    theme.TEXT_MUTED,
-                    (text_x, rect.bottom - 38),
-                    max_width=rect.width - (text_x - rect.left) - 230,
-                )
-            ai_status = self._ai_status_label(row)
-            if ai_status:
-                draw_text(
-                    surface,
-                    ai_status,
-                    fonts.small,
-                    theme.ACCENT if "READY" in ai_status else theme.TEXT_MUTED,
-                    (text_x, rect.bottom - 20),
-                    max_width=rect.width - (text_x - rect.left) - 230,
-                )
+            self._draw_row_details(surface, row, fonts, text_x, rect)
             score = "--" if row.get("score") is None else str(row["score"])
+            draw_text(surface, score, fonts.card_title, theme.TEXT, (rect.right - 34, rect.centery), anchor="midright")
+
+    def _render_mog_mirror_portraits(
+        self,
+        pygame: Any,
+        surface: Any,
+        rows: list[dict[str, Any]],
+        fonts: FontSet,
+        width: int,
+        height: int,
+    ) -> None:
+        visible_rows = rows[:2]
+        gap = 28
+        available_h = max(320, height - 290)
+        card_w = min(500, (width - 120 - gap) // max(1, len(visible_rows)))
+        card_h = available_h
+        total_w = card_w * len(visible_rows) + gap * (len(visible_rows) - 1)
+        left = (width - total_w) // 2
+        top = 154
+        for index, row in enumerate(visible_rows):
+            rect = pygame.Rect(left + index * (card_w + gap), top, card_w, card_h)
+            color = theme.PLAYER_COLORS[index % len(theme.PLAYER_COLORS)]
+            border = theme.WARNING if row.get("winner") else color
+            draw_panel(pygame, surface, rect, fill=theme.SURFACE, border=border, width=3)
+            draw_text(surface, f"P{index + 1}", fonts.body, border, (rect.left + 24, rect.top + 18))
             draw_text(
                 surface,
-                score,
+                str(row["display_name"]),
                 fonts.card_title,
                 theme.TEXT,
-                (rect.right - 34, rect.centery),
-                anchor="midright",
+                (rect.left + 78, rect.top + 12),
+                max_width=rect.width - 106,
             )
 
-        button_y = height - 132
-        home_rect = pygame.Rect(width // 2 - 224, button_y, 196, 58)
-        board_rect = pygame.Rect(width // 2 + 28, button_y, 196, 58)
-        draw_button(pygame, surface, home_rect, "HOME", fonts.body, selected=True, accent=game.accent)
-        draw_button(pygame, surface, board_rect, "BOARD", fonts.body, selected=False, accent=game.accent)
-        draw_bottom_rule(pygame, surface, height - 44, width)
-        draw_text(surface, "ENTER HOME / L BOARD", fonts.small, theme.TEXT_MUTED, (48, height - 32))
+            crop_h = max(210, rect.height - 132)
+            crop_w = min(rect.width - 48, int(crop_h * 0.72))
+            crop_rect = pygame.Rect(0, 0, crop_w, crop_h)
+            crop_rect.midtop = (rect.centerx, rect.top + 62)
+            if row.get("crop_bgr") is not None:
+                self._draw_crop(pygame, surface, crop_rect, row["crop_bgr"], border)
+
+            score = "--" if row.get("score") is None else str(row["score"])
+            draw_text(surface, score, fonts.title, theme.TEXT, (rect.right - 28, rect.bottom - 76), anchor="midright")
+            label = "WINNER" if row.get("winner") else str(row.get("label") or "")
+            rank = row.get("rank")
+            if rank and not row.get("winner"):
+                label = f"{label} / RANK #{rank}"
+            draw_text(surface, label, fonts.small, border if row.get("winner") else theme.TEXT_MUTED, (rect.left + 28, rect.bottom - 72), max_width=rect.width - 170)
+            ai_status = self._ai_status_label(row)
+            if ai_status:
+                draw_text(surface, ai_status, fonts.small, theme.ACCENT if "READY" in ai_status else theme.TEXT_MUTED, (rect.left + 28, rect.bottom - 40), max_width=rect.width - 56)
+
+    def _draw_row_details(self, surface: Any, row: dict[str, Any], fonts: FontSet, text_x: int, rect: Any) -> None:
+        label = str(row.get("label") or "")
+        if label:
+            rank = row.get("rank")
+            label_text = f"{label} / RANK #{rank}" if rank else label
+            draw_text(
+                surface,
+                label_text,
+                fonts.small,
+                theme.TEXT_MUTED,
+                (text_x, rect.bottom - 38),
+                max_width=rect.width - (text_x - rect.left) - 230,
+            )
+        ai_status = self._ai_status_label(row)
+        if ai_status:
+            draw_text(
+                surface,
+                ai_status,
+                fonts.small,
+                theme.ACCENT if "READY" in ai_status else theme.TEXT_MUTED,
+                (text_x, rect.bottom - 20),
+                max_width=rect.width - (text_x - rect.left) - 230,
+            )
 
     def _draw_crop(
         self,
@@ -177,8 +223,15 @@ class ScoreRevealScreen:
             rgb = crop_bgr[:, :, ::-1]
             h, w = rgb.shape[:2]
             image = pygame.image.frombuffer(rgb.tobytes(), (w, h), "RGB").convert()
-            image = pygame.transform.smoothscale(image, rect.inflate(-8, -8).size)
-            surface.blit(image, rect.inflate(-8, -8))
+            inner = rect.inflate(-8, -8)
+            scale = max(inner.width / w, inner.height / h)
+            scaled_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+            image = pygame.transform.smoothscale(image, scaled_size)
+            image_rect = image.get_rect(center=inner.center)
+            previous_clip = surface.get_clip()
+            surface.set_clip(inner)
+            surface.blit(image, image_rect)
+            surface.set_clip(previous_clip)
         except Exception:
             draw_text(surface, "NO CROP", self.fonts.small, theme.TEXT_MUTED, rect.center, anchor="center")
         pygame.draw.rect(surface, border, rect, 2, border_radius=8)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.games.mog_mirror import crop_upper_body, label_for_aura, score_aura
@@ -24,6 +24,7 @@ class MirrorLane:
     face: dict[str, Any] | None = None
     live_score: int | None = None
     live_score_updated_at_ms: int | None = None
+    live_score_samples: list[int] = field(default_factory=list)
 
 
 class MogMirrorScreen:
@@ -199,6 +200,7 @@ class MogMirrorScreen:
                 manual_override=self.manual_override,
                 sample_ms=now_ms - self.started_at_ms if self.started_at_ms is not None else now_ms,
             )
+            lane.live_score_samples.append(lane.live_score)
             lane.live_score_updated_at_ms = now_ms
 
     def _finish_round(self) -> None:
@@ -211,7 +213,7 @@ class MogMirrorScreen:
         frame = snapshot.display_bgr if snapshot is not None else None
         scored = []
         for lane in self.lanes:
-            score = lane.live_score
+            score = self._average_live_score(lane)
             if score is None:
                 score = score_aura(
                     session_id=self.session_id,
@@ -259,6 +261,11 @@ class MogMirrorScreen:
         )
         self.manager.state.reveal_rows = rows
         self.manager.go_to("score_reveal")
+
+    def _average_live_score(self, lane: MirrorLane) -> int | None:
+        if not lane.live_score_samples:
+            return lane.live_score
+        return round(sum(lane.live_score_samples) / len(lane.live_score_samples))
 
     def _submit_ai_jobs(self, lane: MirrorLane, crop: Any | None, score: int, label: str) -> list[str]:
         service = getattr(self.manager, "ai_job_service", None)
