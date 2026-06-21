@@ -23,17 +23,48 @@ def load_asset_image(pygame: Any, filename: str) -> Any | None:
     if filename in _IMAGE_CACHE:
         return _IMAGE_CACHE[filename]
 
-    path = ASSET_ROOT / filename
+    path = _asset_path(filename)
     if not path.exists():
         return None
 
-    image = pygame.image.load(str(path))
     try:
-        image = image.convert_alpha()
+        image = pygame.image.load(str(path))
+        try:
+            image = image.convert_alpha()
+        except pygame.error:
+            image = image.convert()
     except pygame.error:
-        image = image.convert()
+        image = _load_asset_with_cv2(pygame, path)
     _IMAGE_CACHE[filename] = image
     return image
+
+
+def _asset_path(filename: str) -> Path:
+    path = ASSET_ROOT / filename
+    if path.exists():
+        return path
+    lowered = filename.lower()
+    for candidate in ASSET_ROOT.iterdir():
+        if candidate.name.lower() == lowered:
+            return candidate
+    return path
+
+
+def _load_asset_with_cv2(pygame: Any, path: Path) -> Any:
+    import cv2
+
+    image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise pygame.error(f"Could not decode image asset: {path}")
+    height, width = image.shape[:2]
+    if image.ndim == 3 and image.shape[2] == 4:
+        rgba = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA)
+        return pygame.image.frombuffer(rgba.tobytes(), (width, height), "RGBA").convert_alpha()
+    if image.ndim == 3:
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    else:
+        rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    return pygame.image.frombuffer(rgb.tobytes(), (width, height), "RGB").convert()
 
 
 def scaled_asset_image(pygame: Any, filename: str, size: tuple[int, int]) -> Any | None:

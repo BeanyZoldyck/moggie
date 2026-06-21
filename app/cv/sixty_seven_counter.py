@@ -9,6 +9,8 @@ from typing import Any, Mapping
 @dataclass
 class SixtySevenCounter:
     reps: int = 0
+    score: float = 0.0
+    score_rate: float = 0.0
     state: str = "neutral"
     min_confidence: float = 0.55
     cooldown_ms: int = 350
@@ -21,16 +23,43 @@ class SixtySevenCounter:
     last_distance: float | None = None
     peak_distance: float | None = None
     last_alternation_sign: int = 0
+    last_motion_sample_ms: int | None = None
+    last_motion_distance: float | None = None
+    last_motion_alternation: float | None = None
     stale: bool = False
+    motion_deadzone: float = 0.18
+    score_rate_scale: float = 260.0
+    max_score_rate: float = 1_050.0
 
     def reset(self) -> None:
         self.reps = 0
+        self.score = 0.0
+        self.score_rate = 0.0
         self.state = "neutral"
         self.last_rep_ms = -1_000_000
         self.last_distance = None
         self.peak_distance = None
         self.last_alternation_sign = 0
+        self.last_motion_sample_ms = None
+        self.last_motion_distance = None
+        self.last_motion_alternation = None
         self.stale = False
+
+    @property
+    def display_score(self) -> int:
+        return max(int(self.score), self.reps)
+
+    def tick(self, dt_ms: int, *, active: bool = True) -> int:
+        dt_seconds = max(0.0, min(0.25, dt_ms / 1000.0))
+        if active and self.score_rate > 1.0:
+            self.score += self.score_rate * dt_seconds
+
+        decay_per_frame = 0.92 if active and not self.stale else 0.72
+        frames = dt_ms / 16.667 if dt_ms > 0 else 1.0
+        self.score_rate *= decay_per_frame ** max(1.0, frames)
+        if self.score_rate < 8.0:
+            self.score_rate = 0.0
+        return self.display_score
 
     def update(self, hand_distance: float, now_ms: int | None = None) -> int:
         now = 0 if now_ms is None else now_ms
@@ -77,9 +106,11 @@ class SixtySevenCounter:
             return self.reps
 
         first, second = max(combinations(usable, 2), key=lambda pair: hand_distance(pair[0], pair[1]))
+        self._update_score_rate(first, second, now_ms=now_ms)
         before = self.reps
         self.update_alternation(first, second, now_ms=now_ms)
         if self.reps > before:
+            self.score_rate = max(self.score_rate, 420.0)
             return self.reps
         return self.update(hand_distance(first, second), now_ms=now_ms)
 
@@ -107,6 +138,41 @@ class SixtySevenCounter:
 
         self.last_alternation_sign = sign
         return self.reps
+
+    def _update_score_rate(
+        self,
+        first: Mapping[str, Any],
+        second: Mapping[str, Any],
+        *,
+        now_ms: int,
+    ) -> None:
+        distance = hand_distance(first, second)
+        left, right = hands_by_x(first, second)
+        alternation = float(left["palm_center"]["y"]) - float(right["palm_center"]["y"])
+
+        if self.last_motion_sample_ms is None:
+            self.last_motion_sample_ms = now_ms
+            self.last_motion_distance = distance
+            self.last_motion_alternation = alternation
+            return
+
+        elapsed_seconds = max(0.016, min(0.5, (now_ms - self.last_motion_sample_ms) / 1000.0))
+        previous_distance = distance if self.last_motion_distance is None else self.last_motion_distance
+        previous_alternation = alternation if self.last_motion_alternation is None else self.last_motion_alternation
+        distance_delta = abs(distance - previous_distance)
+        alternation_delta = abs(alternation - previous_alternation)
+        velocity = (distance_delta + alternation_delta * 0.75) / elapsed_seconds
+
+        self.last_motion_sample_ms = now_ms
+        self.last_motion_distance = distance
+        self.last_motion_alternation = alternation
+
+        if velocity <= self.motion_deadzone:
+            self.score_rate *= 0.55
+            return
+
+        target_rate = min(self.max_score_rate, (velocity - self.motion_deadzone) * self.score_rate_scale)
+        self.score_rate = max(self.score_rate * 0.65, target_rate)
 
 
 def hand_distance(first: Mapping[str, Any], second: Mapping[str, Any]) -> float:

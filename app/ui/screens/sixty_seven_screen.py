@@ -25,6 +25,7 @@ class PlayerLane:
     counter: SixtySevenCounter
     pulse_until_ms: int = 0
     last_reps: int = 0
+    last_score: int = 0
 
 
 class SixtySevenScreen:
@@ -80,6 +81,7 @@ class SixtySevenScreen:
                 lane.counter.update(0.1, now_ms=pygame.time.get_ticks() - 500)
                 lane.counter.update(0.55, now_ms=pygame.time.get_ticks() - 250)
                 lane.counter.update(0.12, now_ms=pygame.time.get_ticks())
+                lane.counter.score_rate = max(lane.counter.score_rate, 750.0)
 
     def handle_app_event(self, event: Any) -> None:
         return None
@@ -104,16 +106,18 @@ class SixtySevenScreen:
         event_now_ms = current_time_ms()
         for lane in self.lanes:
             zone_hands = [hand for hand in hands if hand.get("zone") == lane.zone]
-            before = lane.counter.reps
+            before = lane.counter.display_score
             lane.counter.update_from_hands(
                 zone_hands,
                 now_ms=event_now_ms,
                 frame_timestamp_ms=frame_timestamp_ms,
                 require_both_hands=self.manager.config.sixty_seven_require_both_hands,
             )
-            if lane.counter.reps > before:
+            lane.counter.tick(dt_ms, active=True)
+            if lane.counter.display_score > before:
                 lane.pulse_until_ms = now_ms + 280
             lane.last_reps = lane.counter.reps
+            lane.last_score = lane.counter.display_score
 
         if elapsed_ms >= self.countdown_ms + self.manager.config.sixty_seven_round_seconds * 1000:
             self._finish_round()
@@ -152,9 +156,11 @@ class SixtySevenScreen:
         state = self.manager.cv_service.latest_state() if self.manager.cv_service is not None else None
         hands = list(state.hand_landmarks.get("hands", [])) if state is not None else []
         stale = any(lane.counter.stale for lane in self.lanes)
+        effect_rect = camera_rect.inflate(-6, -6)
+        self._render_tracking_fx(pygame, surface, effect_rect, hands, now_ms)
         self.hand_renderer.render(
             surface,
-            camera_rect.inflate(-6, -6),
+            effect_rect,
             hands,
             stale=stale,
             split_x=self.manager.config.zone_split_x,
@@ -171,7 +177,7 @@ class SixtySevenScreen:
             draw_panel(pygame, surface, rect, fill=fill, border=color, width=2)
             draw_text(surface, lane.name, fonts.body, theme.TEXT, (rect.left + 24, rect.top + 18), max_width=rect.width - 160)
             draw_text(surface, lane.zone.upper(), fonts.small, color, (rect.left + 24, rect.bottom - 34))
-            draw_text(surface, str(lane.counter.reps), fonts.title, theme.TEXT, (rect.right - 28, rect.centery), anchor="midright")
+            self._draw_score(pygame, surface, rect, lane, fonts)
 
         if self._countdown_label():
             draw_text(surface, self._countdown_label(), fonts.masthead, theme.WARNING, (width // 2, height // 2), anchor="center")
@@ -197,27 +203,134 @@ class SixtySevenScreen:
             return None
         return str(max(1, (self.countdown_ms - elapsed_ms + 999) // 1000))
 
+    def _render_tracking_fx(self, pygame: Any, surface: Any, rect: Any, hands: list[dict[str, Any]], now_ms: int) -> None:
+        lane_by_zone = {lane.zone: lane for lane in self.lanes}
+        divider_x = rect.left + int(rect.width * self.manager.config.zone_split_x)
+
+        for lane in self.lanes:
+            heat = self._speed_heat(lane)
+            if heat <= 0.04:
+                continue
+            zone_rect = (
+                pygame.Rect(rect.left, rect.top, max(1, divider_x - rect.left), rect.height)
+                if lane.zone == "p1"
+                else pygame.Rect(divider_x, rect.top, max(1, rect.right - divider_x), rect.height)
+            )
+            color = self._heat_color(heat)
+            bar_w = int(zone_rect.width * min(1.0, heat))
+            bar_y = zone_rect.top + 10
+            if lane.zone == "p1":
+                pygame.draw.rect(surface, color, pygame.Rect(zone_rect.left + 12, bar_y, bar_w, 4))
+            else:
+                pygame.draw.rect(surface, color, pygame.Rect(zone_rect.right - 12 - bar_w, bar_y, bar_w, 4))
+            for offset in (0, 18, 36):
+                phase_x = int((now_ms // 8 + offset) % max(1, zone_rect.width))
+                x = zone_rect.left + phase_x if lane.zone == "p1" else zone_rect.right - phase_x
+                pygame.draw.line(surface, (80, 60, 54), (x, zone_rect.top + 22), (x - 26 if lane.zone == "p1" else x + 26, zone_rect.top + 34), 1)
+
+        for hand in hands[:8]:
+            palm = hand.get("palm_center")
+            if not isinstance(palm, dict):
+                continue
+            zone = str(hand.get("zone", ""))
+            lane = lane_by_zone.get(zone)
+            heat = self._speed_heat(lane) if lane is not None else 0.0
+            if heat <= 0.03:
+                continue
+            center = self.preview_renderer.point_to_screen(palm, zone=zone, fallback_rect=rect)
+            if center is None:
+                continue
+            color = self._heat_color(heat)
+            direction = -1 if zone == "p2" else 1
+            length = int(18 + heat * 42)
+            spread = int(8 + heat * 18)
+            for index in range(3):
+                y_offset = (index - 1) * spread
+                pygame.draw.line(
+                    surface,
+                    color if index == 1 else (102, 82, 70),
+                    (center[0] - direction * length, center[1] + y_offset),
+                    (center[0] + direction * 8, center[1] + y_offset // 2),
+                    2 if index == 1 else 1,
+                )
+            radius = int(16 + heat * 24)
+            arc_rect = pygame.Rect(center[0] - radius, center[1] - radius, radius * 2, radius * 2)
+            start = ((now_ms // 90) % 8) * 0.35
+            pygame.draw.arc(surface, (94, 88, 82), arc_rect, start, start + 1.9, 2)
+            pygame.draw.line(surface, color, (center[0] - 7, center[1]), (center[0] + 7, center[1]), 2)
+            pygame.draw.line(surface, color, (center[0], center[1] - 7), (center[0], center[1] + 7), 2)
+
+    def _draw_score(self, pygame: Any, surface: Any, rect: Any, lane: PlayerLane, fonts: FontSet) -> None:
+        heat = self._speed_heat(lane)
+        color = self._heat_color(heat)
+        text = str(lane.counter.display_score)
+        image = fonts.title.render(text, True, color)
+        scale = 1.0 + heat * 0.36
+        pulse = 1.0 + (0.06 if lane.pulse_until_ms > pygame.time.get_ticks() else 0.0)
+        scale *= pulse
+        max_width = max(80, rect.width - 190)
+        scaled_width = int(image.get_width() * scale)
+        scaled_height = int(image.get_height() * scale)
+        if scaled_width > max_width:
+            fit = max_width / max(1, scaled_width)
+            scaled_width = int(scaled_width * fit)
+            scaled_height = int(scaled_height * fit)
+        if scaled_width != image.get_width() or scaled_height != image.get_height():
+            image = pygame.transform.smoothscale(image, (max(1, scaled_width), max(1, scaled_height)))
+        score_rect = image.get_rect(midright=(rect.right - 28, rect.centery))
+        shadow = image.copy()
+        shadow.fill((42, 14, 16), special_flags=pygame.BLEND_RGB_MULT)
+        surface.blit(shadow, score_rect.move(3, 3))
+        surface.blit(image, score_rect)
+
+        rate = int(lane.counter.score_rate)
+        if rate > 20:
+            label = f"+{rate}/s"
+            draw_text(surface, label, fonts.small, color, (score_rect.right, score_rect.top - 16), anchor="topright")
+
+    def _speed_heat(self, lane: PlayerLane | None) -> float:
+        if lane is None:
+            return 0.0
+        return max(0.0, min(1.0, lane.counter.score_rate / 1_050.0))
+
+    def _heat_color(self, heat: float) -> tuple[int, int, int]:
+        heat = max(0.0, min(1.0, heat))
+        if heat < 0.45:
+            blend = heat / 0.45
+            return (
+                int(theme.TEXT[0] + (theme.WARNING[0] - theme.TEXT[0]) * blend),
+                int(theme.TEXT[1] + (theme.WARNING[1] - theme.TEXT[1]) * blend),
+                int(theme.TEXT[2] + (theme.WARNING[2] - theme.TEXT[2]) * blend),
+            )
+        blend = (heat - 0.45) / 0.55
+        return (
+            int(theme.WARNING[0] + (theme.ERROR[0] - theme.WARNING[0]) * blend),
+            int(theme.WARNING[1] + (theme.ERROR[1] - theme.WARNING[1]) * blend),
+            int(theme.WARNING[2] + (theme.ERROR[2] - theme.WARNING[2]) * blend),
+        )
+
     def _finish_round(self) -> None:
         if self.finished or self.session_id is None:
             return
         self.finished = True
         ai_job_ids = self._submit_replay_ai_job()
         rows = []
-        high_score = max((lane.counter.reps for lane in self.lanes), default=0)
+        high_score = max((lane.counter.display_score for lane in self.lanes), default=0)
         for lane in self.lanes:
-            label = self._label_for_score(lane.counter.reps, winner=lane.counter.reps == high_score)
+            score_value = lane.counter.display_score
+            label = self._label_for_score(score_value, winner=score_value == high_score)
             score = self.manager.leaderboard_service.record_score(
                 session_id=self.session_id,
                 player_display_name=lane.name,
                 game_type="sixty_seven",
-                score=lane.counter.reps,
+                score=score_value,
                 label=label,
                 metadata={"mode": self.manager.config.sixty_seven_mode, "zone": lane.zone, "ai_job_ids": ai_job_ids},
             )
             rows.append(
                 {
                     "display_name": lane.name,
-                    "score": lane.counter.reps,
+                    "score": score_value,
                     "label": label,
                     "rank": score.rank,
                     "ai_job_ids": ai_job_ids,
@@ -225,7 +338,7 @@ class SixtySevenScreen:
             )
         self.manager.leaderboard_service.complete_session(
             self.session_id,
-            metadata={"scores": {lane.name: lane.counter.reps for lane in self.lanes}, "ai_job_ids": ai_job_ids},
+            metadata={"scores": {lane.name: lane.counter.display_score for lane in self.lanes}, "ai_job_ids": ai_job_ids},
         )
         self.manager.state.reveal_rows = rows
         self.manager.go_to("score_reveal")
@@ -240,10 +353,10 @@ class SixtySevenScreen:
         image_bytes = encode_bgr_jpeg(camera_service.latest_display_frame())
         if not image_bytes:
             return []
-        scores = ", ".join(f"{lane.name}: {lane.counter.reps}" for lane in self.lanes)
+        scores = ", ".join(f"{lane.name}: {lane.counter.display_score}" for lane in self.lanes)
         prompt = (
             "Generate a viral replay clip for a chaotic arcade 67 Challenge battle. "
-            f"Use the players in the image as the source. Final reps: {scores}. "
+            f"Use the players in the image as the source. Final scores: {scores}. "
             "Make it feel like a high-energy sports replay with exaggerated motion, crowd hype, "
             "speed ramps, impact flashes, and a funny winner moment."
         )
@@ -252,7 +365,7 @@ class SixtySevenScreen:
                 "sixty_seven.viral_replay_video",
                 {
                     "game_type": "sixty_seven",
-                    "scores": {lane.name: lane.counter.reps for lane in self.lanes},
+                    "scores": {lane.name: lane.counter.display_score for lane in self.lanes},
                     "image_bytes": image_bytes,
                     "image_mime_type": "image/jpeg",
                     "prompt": prompt,
@@ -263,8 +376,12 @@ class SixtySevenScreen:
     def _label_for_score(self, reps: int, *, winner: bool) -> str:
         if reps == 0:
             return "NO AURA DETECTED"
+        if winner and reps >= 10_000:
+            return "67 OVERLOAD"
+        if winner and reps >= 5_000:
+            return "67 CERTIFIED"
         if winner:
             return "67 CERTIFIED"
-        if reps >= 6:
+        if reps >= 3_500:
             return "CLEAN REPS"
         return "WARMUP ENERGY"

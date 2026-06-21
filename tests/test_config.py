@@ -22,7 +22,15 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.sixty_seven_return_threshold, 0.30)
         self.assertEqual(config.sixty_seven_min_swing, 0.04)
         self.assertEqual(config.camera_fps, 30)
+        self.assertEqual(config.camera_gain, 1.0)
+        self.assertEqual(config.camera_brightness, 0)
+        self.assertEqual(config.camera_backend, "opencv")
         self.assertEqual(config.camera_retry_seconds, 3)
+        self.assertEqual(config.qnx_camera_unit, 1)
+        self.assertEqual(config.qnx_camera_decimate, 3)
+        self.assertTrue(config.cv_enable_face_detection)
+        self.assertEqual(config.hand_tracking_backend, "mediapipe")
+        self.assertEqual(config.face_tracking_backend, "mediapipe")
         self.assertTrue(config.idle_attract_enabled)
         self.assertEqual(config.idle_timeout_seconds, 90)
         self.assertEqual(config.attract_rotation_seconds, 8)
@@ -30,6 +38,13 @@ class ConfigTests(unittest.TestCase):
     def test_invalid_enum_fails_fast(self) -> None:
         with self.assertRaises(ConfigError):
             load_config({"MOGGIE_DEFAULT_GAME_MODE": "chaos"})
+
+        with self.assertRaises(ConfigError):
+            load_config({"MOGGIE_CAMERA_BACKEND": "raspicam"})
+        with self.assertRaises(ConfigError):
+            load_config({"MOGGIE_HAND_TRACKING_BACKEND": "magic"})
+        with self.assertRaises(ConfigError):
+            load_config({"MOGGIE_FACE_TRACKING_BACKEND": "magic"})
 
     def test_numeric_values_are_clamped(self) -> None:
         config = load_config({"MOGGIE_TARGET_FPS": "999", "MOGGIE_CV_FPS": "999", "MOGGIE_ZONE_SPLIT_X": "2"})
