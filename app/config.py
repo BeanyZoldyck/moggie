@@ -109,6 +109,8 @@ class MoggieConfig:
     x_access_token: str
     x_access_token_secret: str
     deepgram_voice_agent_endpoint: str
+    voice_agent_mic_sample_rate: int
+    voice_agent_mic_input_device: str
 
     @property
     def display_size(self) -> tuple[int, int]:
@@ -220,6 +222,8 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
             "MOGGIE_DEEPGRAM_VOICE_AGENT_ENDPOINT",
             "wss://agent.deepgram.com/v1/agent/converse",
         ),
+        voice_agent_mic_sample_rate=_int(env, "MOGGIE_VOICE_AGENT_MIC_SAMPLE_RATE", 16000, 8000, 48000),
+        voice_agent_mic_input_device=_str(env, "MOGGIE_VOICE_AGENT_INPUT_DEVICE", ""),
     )
 
 

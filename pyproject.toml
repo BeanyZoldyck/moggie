@@ -17,6 +17,7 @@ dependencies = [
     "requests>=2.32",
     "requests-oauthlib>=2.0",
     "websocket-client>=1.8",
+    "sounddevice>=0.4",
 ]
 
 [project.optional-dependencies]

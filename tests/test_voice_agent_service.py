@@ -9,13 +9,16 @@ from app.services.voice_agent_service import VoicePostContext, _VoiceAgentSessio
 
 class _FakeWs:
     def __init__(self) -> None:
-        self.sent: list[str] = []
+        self.sent: list[str | bytes] = []
 
-    def send(self, message: str) -> None:
+    def send(self, message: str | bytes) -> None:
         self.sent.append(message)
 
     def close(self) -> None:
         return None
+
+    def settimeout(self, _timeout: float) -> None:
+        pass
 
 
 class _FakeSocialService:
@@ -37,6 +40,9 @@ class VoiceAgentServiceTests(unittest.TestCase):
         session = _VoiceAgentSession(
             api_key="dg_key",
             endpoint="wss://agent.deepgram.com/v1/agent/converse",
+            voice_model="aura-2-atlas-en",
+            mic_sample_rate=16000,
+            mic_input_device=None,
             context=VoicePostContext(
                 game_type="mog_mirror",
                 recap_url="https://cdn.example/recap.mp4",

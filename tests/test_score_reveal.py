@@ -65,12 +65,16 @@ class FakeVoiceAgentService:
     def __init__(self) -> None:
         self.contexts: list[object] = []
         self.inputs: list[str] = []
+        self.mic_states: list[bool] = []
 
     def begin_social_prompt(self, context: object, on_status: object) -> None:
         self.contexts.append(context)
 
     def submit_user_text(self, text: str) -> None:
         self.inputs.append(text)
+
+    def set_mic_enabled(self, enabled: bool) -> None:
+        self.mic_states.append(enabled)
 
 
 def _make_screen(
@@ -219,6 +223,7 @@ class ScoreRevealReplayTests(unittest.TestCase):
             K_x=120,
             K_y=121,
             K_n=110,
+            K_m=109,
             K_ESCAPE=27,
             K_h=104,
             K_RETURN=13,
@@ -239,6 +244,35 @@ class ScoreRevealReplayTests(unittest.TestCase):
         self.assertTrue(screen.social_prompt_started)
         self.assertEqual(len(voice_agent.contexts), 1)
         self.assertEqual(voice_agent.contexts[0].recap_url, "https://v3.fal.media/files/recap.mp4")
+
+    def test_m_key_toggles_mic_when_prompt_started(self) -> None:
+        screen = _make_screen()
+        voice_agent = FakeVoiceAgentService()
+        screen.manager.voice_agent_service = voice_agent
+        screen.manager.speak_text = lambda text: None
+        fake_pygame = SimpleNamespace(
+            K_t=116, K_g=103, K_x=120, K_y=121, K_n=110, K_m=109,
+            K_ESCAPE=27, K_h=104, K_RETURN=13, K_KP_ENTER=1073741912,
+            K_SPACE=32, K_l=108, KEYDOWN=2,
+        )
+        with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
+            screen._start_replay()
+        with patch("app.ui.screens.score_reveal_screen.download_in_background", new=_sync_download), patch(
+            "app.ui.screens.score_reveal_screen.LoopingVideoPlayer", new=FakePlayer
+        ):
+            screen.handle_app_event(_succeeded("job-1"))
+            screen.update(0, 0)
+        with patch("app.ui.screens.score_reveal_screen._pygame", return_value=fake_pygame):
+            screen.handle_event(SimpleNamespace(type=fake_pygame.KEYDOWN, key=fake_pygame.K_t))
+            self.assertTrue(screen.social_prompt_started)
+            screen.handle_event(SimpleNamespace(type=fake_pygame.KEYDOWN, key=fake_pygame.K_m))
+            self.assertTrue(screen.social_mic_enabled)
+            self.assertEqual(len(voice_agent.mic_states), 1)
+            self.assertTrue(voice_agent.mic_states[0])
+            screen.handle_event(SimpleNamespace(type=fake_pygame.KEYDOWN, key=fake_pygame.K_m))
+            self.assertFalse(screen.social_mic_enabled)
+            self.assertEqual(len(voice_agent.mic_states), 2)
+            self.assertFalse(voice_agent.mic_states[1])
 
     def test_failed_event_sets_failed_phase(self) -> None:
         screen = _make_screen()

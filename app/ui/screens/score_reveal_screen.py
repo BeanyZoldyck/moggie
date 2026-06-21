@@ -51,6 +51,7 @@ class ScoreRevealScreen:
         self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
         self.recap_url = ""
         self.social_prompt_started = False
+        self.social_mic_enabled = False
         self.social_status_text = ""
         self._social_queue: "queue.Queue[tuple[str, dict[str, Any]]]" = queue.Queue()
         self.sparkles = None
@@ -74,6 +75,7 @@ class ScoreRevealScreen:
         self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
         self.recap_url = ""
         self.social_prompt_started = False
+        self.social_mic_enabled = False
         self.social_status_text = ""
         self._social_queue = queue.Queue()
 
@@ -91,6 +93,9 @@ class ScoreRevealScreen:
                     self._start_social_prompt(self.recap_url)
                 return
             if self.social_prompt_started:
+                if event.key == pygame.K_m:
+                    self._toggle_mic()
+                    return
                 if event.key == pygame.K_x:
                     self._inject_social_input("x")
                     return
@@ -250,12 +255,18 @@ class ScoreRevealScreen:
             winners=rows,
         )
         self.social_prompt_started = True
-        self.social_status_text = "Voice assistant: choose platform (X), then confirm (Y/N)."
-        self.manager.speak_text("Where should I post this replay? Only X is available. Say X, then yes to post.")
+        self.social_status_text = "Voice assistant connecting… Press M to toggle mic."
         voice_agent.begin_social_prompt(
             context,
             on_status=lambda event, payload: self._social_queue.put((event, payload)),
         )
+
+    def _toggle_mic(self) -> None:
+        voice_agent = getattr(self.manager, "voice_agent_service", None)
+        if voice_agent is None:
+            return
+        self.social_mic_enabled = not self.social_mic_enabled
+        voice_agent.set_mic_enabled(self.social_mic_enabled)
 
     def _inject_social_input(self, text: str) -> None:
         voice_agent = getattr(self.manager, "voice_agent_service", None)
@@ -276,22 +287,32 @@ class ScoreRevealScreen:
             if event == "agent_text":
                 text = str(payload.get("text") or "").strip()
                 if text:
-                    self.social_status_text = f"Voice assistant: {text[:120]}"
-                    self.manager.speak_text(text)
+                    self.social_status_text = f"Agent: {text[:120]}"
+            elif event == "user_text":
+                text = str(payload.get("text") or "").strip()
+                if text:
+                    self.social_status_text = f"You: {text[:120]}"
+            elif event == "mic_state":
+                enabled = bool(payload.get("enabled"))
+                self.social_mic_enabled = enabled
+                self.social_status_text = f"Microphone {'ON' if enabled else 'OFF'}."
+            elif event == "mic_unavailable":
+                self.social_mic_enabled = False
+                self.social_status_text = "No microphone detected."
+            elif event == "prompt_started":
+                msg = str(payload.get("message") or "Voice assistant active.")
+                self.social_status_text = msg
             elif event == "post_result":
                 url = str(payload.get("url") or "")
                 status = str(payload.get("status") or "")
                 error = str(payload.get("error") or "")
                 if status == "posted":
-                    self.social_status_text = "Posted to X successfully."
-                    self.manager.speak_text("Posted to X.")
+                    self.social_status_text = f"Posted to X: {url}"
                 else:
                     self.social_status_text = f"X post failed: {error or status}"
-                    self.manager.speak_text("Posting failed.")
                 self._record_social_post_result(payload)
             elif event == "declined":
                 self.social_status_text = "User declined social posting."
-                self.manager.speak_text("No problem. I will not post it.")
                 self._record_social_post_result({"status": "declined", **payload})
             elif event == "error":
                 self.social_status_text = f"Voice agent error: {payload.get('error', 'unknown')}"
@@ -449,7 +470,8 @@ class ScoreRevealScreen:
         video_rect.center = (width // 2, height // 2)
         self._draw_crop(pygame, surface, video_rect, frame, theme.ACCENT)
         if self.social_prompt_started:
-            hint = "X PLATFORM / Y POST / N SKIP / ENTER HOME"
+            mic_label = "MIC ON" if not self.social_mic_enabled else "MIC OFF"
+            hint = f"M {mic_label} / X-Y-N KEYBOARD / ENTER HOME"
         else:
             hint = "T POST TO SOCIAL / ENTER HOME"
         draw_text(surface, hint, fonts.small, theme.TEXT_MUTED, (width // 2, height - 70), anchor="center")
