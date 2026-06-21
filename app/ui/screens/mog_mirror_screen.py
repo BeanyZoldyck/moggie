@@ -8,8 +8,6 @@ from typing import Any
 from app.core.app_event import EVENT_AI_JOB_UPDATE, AppEvent
 from app.cv.zone_assignment import assign_face
 from app.games.mog_mirror import (
-    MOG_AVATAR_NEGATIVE_PROMPT,
-    MOG_AVATAR_PROMPT,
     crop_upper_body,
     label_for_aura,
     score_aura,
@@ -19,12 +17,21 @@ from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_pan
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.face_overlay_renderer import FaceOverlayRenderer
 from app.util.images import encode_bgr_jpeg
-from app.util.video_playback import LoopingVideoPlayer, download_in_background
+
+try:
+    from app.util.video_playback import LoopingVideoPlayer, download_in_background
+except ModuleNotFoundError:
+    LoopingVideoPlayer = Any  # type: ignore[misc, assignment]
+
+    def download_in_background(*_: Any, **__: Any) -> None:
+        return None
 
 # Round phases.
 PHASE_READY = "ready"
 PHASE_GENERATING = "generating"
 PHASE_SCORING = "scoring"
+MOG_AVATAR_PROMPT = ""
+MOG_AVATAR_NEGATIVE_PROMPT = ""
 
 
 def _pygame() -> Any:
@@ -45,6 +52,10 @@ class MirrorLane:
     display_score_target: float = 0.0
     display_score_rate: float = 0.0
     display_pulse_until_ms: int = 0
+    display_target_index: int = -1
+    last_face_center: tuple[float, float] | None = None
+    last_face_box_area: float | None = None
+    movement_energy: float = 0.0
 
 
 class MogMirrorScreen:
@@ -265,9 +276,7 @@ class MogMirrorScreen:
     # Avatar mode
     # ------------------------------------------------------------------
     def _avatar_mode_enabled(self) -> bool:
-        config = getattr(self.manager, "config", None)
-        service = getattr(self.manager, "ai_job_service", None)
-        return bool(config is not None and getattr(config, "enable_pika", False) and service is not None)
+        return False
 
     def _capture_and_request_avatars(self) -> None:
         pygame = _pygame()
@@ -536,17 +545,26 @@ class MogMirrorScreen:
             )
             lane.live_score_samples.append(lane.live_score)
             lane.live_score_updated_at_ms = now_ms
-            self._set_display_target(lane, now_ms)
+            self._update_lane_movement(lane)
+            target_index = self._display_target_bucket(now_ms)
+            if force or lane.display_target_index != target_index:
+                self._set_display_target(lane, now_ms)
 
     def _set_display_target(self, lane: MirrorLane, now_ms: int) -> None:
-        aura = 0 if lane.live_score is None else lane.live_score
-        face_bonus = 850 if lane.face is not None else 0
-        sample_bonus = min(900, len(lane.live_score_samples) * 55)
-        target = min(9_999.0, max(0.0, (aura - 18) * 118.0 + face_bonus + sample_bonus))
+        aura = 45 if lane.live_score is None else lane.live_score
+        face_bonus = 6 if lane.face is not None else -12
+        movement_bonus = lane.movement_energy * 30.0
+        target_index = self._display_target_bucket(now_ms)
+        jitter = self._target_jitter(lane, target_index)
+        target = max(1.0, min(100.0, aura * 0.72 + 14.0 + face_bonus + movement_bonus + jitter))
         delta = abs(target - lane.display_score)
         lane.display_score_target = target
-        lane.display_score_rate = max(lane.display_score_rate, min(2_700.0, 480.0 + delta * 3.2))
+        lane.display_score_rate = max(
+            lane.display_score_rate,
+            min(260.0, 70.0 + delta * 7.0 + lane.movement_energy * 160.0),
+        )
         lane.display_pulse_until_ms = now_ms + 340
+        lane.display_target_index = target_index
 
     def _tick_display_scores(self, now_ms: int, dt_ms: int) -> None:
         del now_ms
@@ -554,11 +572,53 @@ class MogMirrorScreen:
         for lane in self.lanes:
             diff = lane.display_score_target - lane.display_score
             if abs(diff) > 0.5:
-                step = min(abs(diff), max(80.0, lane.display_score_rate) * dt_seconds)
+                step = min(abs(diff), max(45.0, lane.display_score_rate) * dt_seconds)
                 lane.display_score += step if diff > 0 else -step
+            lane.display_score = max(0.0, min(100.0, lane.display_score))
             lane.display_score_rate *= 0.90 ** max(1.0, dt_ms / 16.667)
-            if lane.display_score_rate < 20.0:
+            lane.movement_energy *= 0.94 ** max(1.0, dt_ms / 16.667)
+            if lane.display_score_rate < 10.0:
                 lane.display_score_rate = 0.0
+
+    def _display_target_bucket(self, now_ms: int) -> int:
+        if self.started_at_ms is None:
+            return 0
+        interval_ms = max(1, self.live_score_duration_ms // 5)
+        elapsed_ms = max(0, now_ms - self.started_at_ms)
+        return max(0, min(4, elapsed_ms // interval_ms))
+
+    def _target_jitter(self, lane: MirrorLane, target_index: int) -> int:
+        seed_text = f"{self.session_id or 'mirror'}:{lane.name}:{lane.zone}:{target_index}"
+        return sum(ord(char) for char in seed_text) % 17 - 8
+
+    def _update_lane_movement(self, lane: MirrorLane) -> None:
+        face = lane.face
+        if face is None:
+            lane.last_face_center = None
+            lane.last_face_box_area = None
+            lane.movement_energy *= 0.65
+            return
+
+        center = face.get("center")
+        bbox = face.get("bbox")
+        if not isinstance(center, dict) or not isinstance(bbox, dict):
+            lane.movement_energy *= 0.75
+            return
+
+        x = float(center.get("x", 0.0))
+        y = float(center.get("y", 0.0))
+        area = max(0.0, float(bbox.get("width", 0.0)) * float(bbox.get("height", 0.0)))
+        instant = 0.0
+        if lane.last_face_center is not None:
+            dx = abs(x - lane.last_face_center[0])
+            dy = abs(y - lane.last_face_center[1])
+            instant += (dx + dy) * 7.0
+        if lane.last_face_box_area is not None:
+            instant += abs(area - lane.last_face_box_area) * 12.0
+
+        lane.movement_energy = max(lane.movement_energy * 0.65, min(1.0, instant))
+        lane.last_face_center = (x, y)
+        lane.last_face_box_area = area
 
     def _render_mirror_fx(self, pygame: Any, surface: Any, rect: Any, faces: list[dict[str, Any]], now_ms: int) -> None:
         lane_by_zone = {lane.zone: lane for lane in self.lanes}
@@ -607,7 +667,8 @@ class MogMirrorScreen:
             return
         heat = self._lane_heat(lane)
         text_color = self._heat_color(heat, color)
-        image = self.fonts.card_title.render(str(int(lane.display_score)), True, text_color)
+        score_value = max(1, min(100, int(round(lane.display_score))))
+        image = self.fonts.card_title.render(str(score_value), True, text_color)
         scale = 1.0 + heat * 0.28 + (0.08 if lane.display_pulse_until_ms > now_ms else 0.0)
         size = (max(1, int(image.get_width() * scale)), max(1, int(image.get_height() * scale)))
         max_width = max(80, rect.width - 210)
@@ -621,13 +682,13 @@ class MogMirrorScreen:
         shadow.fill((12, 32, 16), special_flags=pygame.BLEND_RGB_MULT)
         surface.blit(shadow, score_rect.move(2, 2))
         surface.blit(image, score_rect)
-        if lane.display_score_rate > 50:
+        if lane.display_score_rate > 35:
             draw_text(surface, f"+{int(lane.display_score_rate)}/s", self.fonts.small, text_color, (score_rect.right, score_rect.top - 14), anchor="topright")
 
     def _lane_heat(self, lane: MirrorLane | None) -> float:
         if lane is None:
             return 0.0
-        return max(0.0, min(1.0, lane.display_score_rate / 2_700.0))
+        return max(0.0, min(1.0, lane.display_score_rate / 260.0))
 
     def _heat_color(self, heat: float, base: tuple[int, int, int]) -> tuple[int, int, int]:
         target = theme.ERROR if heat > 0.58 else theme.WARNING
@@ -731,6 +792,10 @@ class MogMirrorScreen:
         return round(sum(lane.live_score_samples) / len(lane.live_score_samples))
 
     def _submit_ai_jobs(self, lane: MirrorLane, crop: Any | None, score: int, label: str) -> list[str]:
+        del lane, crop, score, label
+        return []
+
+    def _submit_ai_jobs_disabled(self, lane: MirrorLane, crop: Any | None, score: int, label: str) -> list[str]:
         service = getattr(self.manager, "ai_job_service", None)
         if service is None:
             return []

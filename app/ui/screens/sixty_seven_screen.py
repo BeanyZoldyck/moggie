@@ -157,6 +157,7 @@ class SixtySevenScreen:
         hands = list(state.hand_landmarks.get("hands", [])) if state is not None else []
         stale = any(lane.counter.stale for lane in self.lanes)
         effect_rect = camera_rect.inflate(-6, -6)
+        now_ms = pygame.time.get_ticks()
         self._render_tracking_fx(pygame, surface, effect_rect, hands, now_ms)
         self.hand_renderer.render(
             surface,
@@ -169,7 +170,6 @@ class SixtySevenScreen:
 
         panel_y = height - 174
         lane_w = (width - 108 - 24 * (len(self.lanes) - 1)) // len(self.lanes)
-        now_ms = pygame.time.get_ticks()
         for index, lane in enumerate(self.lanes):
             rect = pygame.Rect(42 + index * (lane_w + 24), panel_y, lane_w, 104)
             color = theme.PLAYER_COLORS[index % len(theme.PLAYER_COLORS)]

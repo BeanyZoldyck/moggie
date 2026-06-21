@@ -93,7 +93,7 @@ class MogMirrorTests(unittest.TestCase):
         self.assertEqual(job_ids, [])
         self.assertEqual(service.submitted, [])
 
-    def test_ai_submission_sends_original_crop_to_pika_when_enabled(self) -> None:
+    def test_ai_submission_is_disabled_for_testing_even_when_pika_enabled(self) -> None:
         service = FakeAIJobService()
         screen = MogMirrorScreen(
             SimpleNamespace(
@@ -105,11 +105,8 @@ class MogMirrorTests(unittest.TestCase):
         with patch("app.ui.screens.mog_mirror_screen.encode_bgr_jpeg", return_value=b"jpeg"):
             job_ids = screen._submit_ai_jobs(MirrorLane(name="Mina", zone="p1"), object(), 88, "MOGGED OUT")
 
-        self.assertEqual(job_ids, ["job-1"])
-        self.assertEqual([kind for kind, _ in service.submitted], ["mog_mirror.victory_video"])
-        self.assertTrue(all(payload["has_crop"] for _, payload in service.submitted))
-        self.assertIn("image_bytes", service.submitted[0][1])
-        self.assertIn("prompt", service.submitted[0][1])
+        self.assertEqual(job_ids, [])
+        self.assertEqual(service.submitted, [])
 
     def test_live_score_window_runs_for_ten_seconds(self) -> None:
         screen = MogMirrorScreen(SimpleNamespace())
@@ -141,6 +138,43 @@ class MogMirrorTests(unittest.TestCase):
 
         self.assertNotEqual(screen.lanes[0].live_score, first_score)
         self.assertEqual(screen.lanes[0].live_score_updated_at_ms, 1_500)
+
+    def test_display_score_targets_use_five_round_buckets(self) -> None:
+        screen = MogMirrorScreen(SimpleNamespace())
+        screen.started_at_ms = 1_000
+
+        buckets = [screen._display_target_bucket(now_ms) for now_ms in [1_000, 2_999, 3_000, 5_000, 7_000, 9_000, 10_999]]
+
+        self.assertEqual(buckets, [0, 0, 1, 2, 3, 4, 4])
+
+    def test_display_score_target_stays_in_one_to_one_hundred_range(self) -> None:
+        screen = MogMirrorScreen(SimpleNamespace())
+        screen.session_id = "session-1"
+        screen.started_at_ms = 0
+        lane = MirrorLane(name="Mina", zone="p1", live_score=100, face=_mog_face())
+        lane.movement_energy = 1.0
+
+        screen._set_display_target(lane, 0)
+
+        self.assertGreaterEqual(lane.display_score_target, 1)
+        self.assertLessEqual(lane.display_score_target, 100)
+        self.assertEqual(lane.display_target_index, 0)
+
+    def test_face_motion_increases_display_target(self) -> None:
+        screen = MogMirrorScreen(SimpleNamespace())
+        screen.session_id = "session-1"
+        screen.started_at_ms = 0
+        still = MirrorLane(name="Mina", zone="p1", live_score=60, face=_mog_face())
+        moving = MirrorLane(name="Mina", zone="p1", live_score=60, face=_mog_face())
+
+        screen._update_lane_movement(moving)
+        moving.face = _mog_face(center_x=0.36, center_y=0.46, width=0.31)
+        screen._update_lane_movement(moving)
+        screen._set_display_target(still, 0)
+        screen._set_display_target(moving, 0)
+
+        self.assertGreater(moving.movement_energy, 0)
+        self.assertGreater(moving.display_score_target, still.display_score_target)
 
     def test_final_score_uses_average_live_score(self) -> None:
         screen = MogMirrorScreen(SimpleNamespace())
@@ -249,11 +283,11 @@ class MogAvatarModeTests(unittest.TestCase):
         self.assertEqual(screen.avatar_status, {})
 
 
-def _mog_face(offset: float = 0.0) -> dict[str, object]:
+def _mog_face(offset: float = 0.0, center_x: float = 0.25, center_y: float = 0.38, width: float = 0.26) -> dict[str, object]:
     return {
         "confidence": 1.0,
-        "center": {"x": 0.25, "y": 0.38},
-        "bbox": {"x": 0.12, "y": 0.18, "width": 0.26, "height": 0.36},
+        "center": {"x": center_x, "y": center_y},
+        "bbox": {"x": 0.12, "y": 0.18, "width": width, "height": 0.36},
         "landmarks": {
             "left_eye_outer": {"x": 0.17, "y": 0.30},
             "left_eye_inner": {"x": 0.22, "y": 0.30},
