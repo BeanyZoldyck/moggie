@@ -9,7 +9,6 @@ from app.ui import theme
 from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text, scaled_asset_image
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.hand_overlay_renderer import HandOverlayRenderer
-from app.util.images import encode_bgr_jpeg
 
 
 def _pygame() -> Any:
@@ -288,7 +287,10 @@ class SixtySevenScreen:
         if self.finished or self.session_id is None:
             return
         self.finished = True
-        ai_job_ids = self._submit_replay_ai_job()
+        # Stash the end-of-round frame for the optional opt-in recap on score reveal.
+        camera_service = getattr(self.manager, "camera_service", None)
+        frame = camera_service.latest_display_frame() if camera_service is not None else None
+        self.manager.state.reveal_replay_image = frame
         rows = []
         high_score = max((lane.counter.display_score for lane in self.lanes), default=0)
         for lane in self.lanes:
@@ -300,7 +302,7 @@ class SixtySevenScreen:
                 game_type="sixty_seven",
                 score=score_value,
                 label=label,
-                metadata={"mode": self.manager.config.sixty_seven_mode, "zone": lane.zone, "ai_job_ids": ai_job_ids},
+                metadata={"mode": self.manager.config.sixty_seven_mode, "zone": lane.zone},
             )
             rows.append(
                 {
@@ -308,45 +310,17 @@ class SixtySevenScreen:
                     "score": score_value,
                     "label": label,
                     "rank": score.rank,
-                    "ai_job_ids": ai_job_ids,
+                    "winner": score_value == high_score,
+                    "ai_job_ids": [],
                 }
             )
         self.manager.leaderboard_service.complete_session(
             self.session_id,
-            metadata={"scores": {lane.name: lane.counter.display_score for lane in self.lanes}, "ai_job_ids": ai_job_ids},
+            metadata={"scores": {lane.name: lane.counter.display_score for lane in self.lanes}},
         )
         self.manager.state.reveal_rows = rows
+        self.manager.state.last_session_id = self.session_id
         self.manager.go_to("score_reveal")
-
-    def _submit_replay_ai_job(self) -> list[str]:
-        if not self.manager.config.enable_pika:
-            return []
-        service = getattr(self.manager, "ai_job_service", None)
-        camera_service = getattr(self.manager, "camera_service", None)
-        if service is None or camera_service is None:
-            return []
-        image_bytes = encode_bgr_jpeg(camera_service.latest_display_frame())
-        if not image_bytes:
-            return []
-        scores = ", ".join(f"{lane.name}: {lane.counter.display_score}" for lane in self.lanes)
-        prompt = (
-            "Generate a viral replay clip for a chaotic arcade 67 Challenge battle. "
-            f"Use the players in the image as the source. Final scores: {scores}. "
-            "Make it feel like a high-energy sports replay with exaggerated motion, crowd hype, "
-            "speed ramps, impact flashes, and a funny winner moment."
-        )
-        return [
-            service.submit(
-                "sixty_seven.viral_replay_video",
-                {
-                    "game_type": "sixty_seven",
-                    "scores": {lane.name: lane.counter.display_score for lane in self.lanes},
-                    "image_bytes": image_bytes,
-                    "image_mime_type": "image/jpeg",
-                    "prompt": prompt,
-                },
-            )
-        ]
 
     def _label_for_score(self, reps: int, *, winner: bool) -> str:
         if reps == 0:

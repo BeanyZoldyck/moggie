@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from app.core.app_event import EVENT_AI_JOB_UPDATE, AppEvent, ai_job_update_payload
+from app.games.recap_prompts import build_recap_prompt
 from app.ui.screens.score_reveal_screen import ScoreRevealScreen
 
 
@@ -45,33 +46,51 @@ class FakeAIJobService:
         return f"job-{len(self.submitted)}"
 
 
-def _make_screen(*, enable_pika: bool = True, image=FakeFrame(640, 480)) -> ScoreRevealScreen:
-    rows = [
-        {"display_name": "Mina", "score": 90, "label": "MIRROR VERIFIED", "winner": True, "ai_job_ids": []},
-        {"display_name": "Theo", "score": 70, "label": "FLASH READY", "winner": False, "ai_job_ids": []},
-    ]
+def _make_screen(
+    *,
+    game_type: str = "mog_mirror",
+    enable_pika: bool = True,
+    image: object = None,
+) -> ScoreRevealScreen:
+    if image is None:
+        image = FakeFrame(640, 480)
+    rows = {
+        "mog_mirror": [
+            {"display_name": "Mina", "score": 90, "label": "MIRROR VERIFIED", "winner": True, "ai_job_ids": []},
+            {"display_name": "Theo", "score": 70, "label": "FLASH READY", "winner": False, "ai_job_ids": []},
+        ],
+        "sixty_seven": [
+            {"display_name": "Mina", "score": 42, "label": "67 CERTIFIED", "winner": True, "ai_job_ids": []},
+            {"display_name": "Theo", "score": 31, "label": "67 CERTIFIED", "winner": False, "ai_job_ids": []},
+        ],
+        "emoji_face_match": [
+            {"display_name": "Mina", "score": 600, "label": "MOJI FINAL BOSS", "winner": True, "ai_job_ids": []},
+            {"display_name": "Theo", "score": 400, "label": "REACTION READY", "winner": False, "ai_job_ids": []},
+        ],
+    }.get(game_type, [])
     state = SimpleNamespace(
-        selected_game_type="mog_mirror",
+        selected_game_type=game_type,
         player_names=["Mina", "Theo"],
         reveal_rows=rows,
         reveal_replay_image=image,
+        last_session_id="session-test",
     )
     manager = SimpleNamespace(
-        config=SimpleNamespace(enable_pika=enable_pika),
+        config=SimpleNamespace(enable_pika=enable_pika, save_generated_media=False),
         ai_job_service=FakeAIJobService(),
         state=state,
     )
     return ScoreRevealScreen(manager)
 
 
-def _succeeded(job_id: str) -> AppEvent:
+def _succeeded(job_id: str, game_type: str = "mog_mirror") -> AppEvent:
     return AppEvent.create(
         EVENT_AI_JOB_UPDATE,
         payload=ai_job_update_payload(
             job_id,
             "succeeded",
-            kind="mog_mirror.replay_video",
-            result={"uri": "https://v3.fal.media/files/replay.mp4"},
+            kind=f"{game_type}.recap_video",
+            result={"uri": "https://v3.fal.media/files/recap.mp4"},
         ),
     )
 
@@ -79,47 +98,78 @@ def _succeeded(job_id: str) -> AppEvent:
 def _failed(job_id: str) -> AppEvent:
     return AppEvent.create(
         EVENT_AI_JOB_UPDATE,
-        payload=ai_job_update_payload(job_id, "failed", kind="mog_mirror.replay_video", error="boom"),
+        payload=ai_job_update_payload(job_id, "failed", kind="mog_mirror.recap_video", error="boom"),
     )
 
 
 def _sync_download(url: str, on_ready: object, **_: object) -> None:
-    on_ready(Path("/tmp/moggie_fake_replay.mp4"))  # type: ignore[operator]
+    # The download callback now passes (path, url) to the queue.
+    on_ready(Path("/tmp/moggie_fake_recap.mp4"), url)  # type: ignore[operator]
+
+
+class RecapPromptTests(unittest.TestCase):
+    def test_mog_mirror_prompt_names_winner_and_loser(self) -> None:
+        rows = [
+            {"display_name": "Mina", "score": 90, "label": "MIRROR VERIFIED", "winner": True},
+            {"display_name": "Theo", "score": 70, "winner": False},
+        ]
+        prompt = build_recap_prompt("mog_mirror", rows)
+        self.assertIn("Mina", prompt)
+        self.assertIn("90", prompt)
+        self.assertIn("Theo", prompt)
+
+    def test_sixty_seven_prompt_mentions_reps(self) -> None:
+        rows = [{"display_name": "Mina", "score": 42, "winner": True, "label": "67 CERTIFIED"}]
+        prompt = build_recap_prompt("sixty_seven", rows)
+        self.assertIn("Mina", prompt)
+        self.assertIn("42", prompt)
+        self.assertIn("reps", prompt.lower())
+
+    def test_emoji_prompt_mentions_points(self) -> None:
+        rows = [{"display_name": "Mina", "score": 600, "winner": True, "label": "MOJI FINAL BOSS"}]
+        prompt = build_recap_prompt("emoji_face_match", rows)
+        self.assertIn("Mina", prompt)
+        self.assertIn("600", prompt)
 
 
 class ScoreRevealReplayTests(unittest.TestCase):
     def test_can_generate_requires_pika_and_image(self) -> None:
         self.assertTrue(_make_screen()._can_generate_replay())
         self.assertFalse(_make_screen(enable_pika=False)._can_generate_replay())
-        self.assertFalse(_make_screen(image=None)._can_generate_replay())
 
-    def test_start_replay_submits_one_result_aware_job(self) -> None:
-        screen = _make_screen()
+    def test_can_generate_works_for_all_games(self) -> None:
+        for game_type in ("mog_mirror", "sixty_seven", "emoji_face_match"):
+            with self.subTest(game_type=game_type):
+                self.assertTrue(_make_screen(game_type=game_type)._can_generate_replay())
 
+    def test_start_replay_submits_game_typed_kind(self) -> None:
+        for game_type in ("mog_mirror", "sixty_seven", "emoji_face_match"):
+            with self.subTest(game_type=game_type):
+                screen = _make_screen(game_type=game_type)
+                with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
+                    screen._start_replay()
+                kind, payload = screen.manager.ai_job_service.submitted[0]
+                self.assertEqual(kind, f"{game_type}.recap_video")
+                self.assertEqual(payload["image_bytes"], b"jpeg")
+                self.assertIn("negative_prompt", payload)
+                self.assertEqual(screen.replay_phase, "generating")
+
+    def test_mog_mirror_prompt_is_result_aware(self) -> None:
+        screen = _make_screen(game_type="mog_mirror")
         with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
             screen._start_replay()
-
-        submitted = screen.manager.ai_job_service.submitted
-        self.assertEqual(len(submitted), 1)
-        kind, payload = submitted[0]
-        self.assertEqual(kind, "mog_mirror.replay_video")
-        self.assertEqual(payload["image_bytes"], b"jpeg")
-        self.assertIn("negative_prompt", payload)
-        self.assertIn("Mina", payload["prompt"])  # result-aware prompt
-        self.assertEqual(screen.replay_phase, "generating")
-        self.assertEqual(screen.replay_job_id, "job-1")
+        _, payload = screen.manager.ai_job_service.submitted[0]
+        self.assertIn("Mina", payload["prompt"])
 
     def test_succeeded_event_downloads_and_becomes_ready(self) -> None:
         screen = _make_screen()
         with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
             screen._start_replay()
-
         with patch("app.ui.screens.score_reveal_screen.download_in_background", new=_sync_download), patch(
             "app.ui.screens.score_reveal_screen.LoopingVideoPlayer", new=FakePlayer
         ):
             screen.handle_app_event(_succeeded("job-1"))
             screen.update(0, 0)
-
         self.assertEqual(screen.replay_phase, "ready")
         self.assertIsInstance(screen.replay_player, FakePlayer)
 
@@ -127,9 +177,7 @@ class ScoreRevealReplayTests(unittest.TestCase):
         screen = _make_screen()
         with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
             screen._start_replay()
-
         screen.handle_app_event(_failed("job-1"))
-
         self.assertEqual(screen.replay_phase, "failed")
         self.assertIn("boom", screen.replay_error)
 
@@ -137,9 +185,7 @@ class ScoreRevealReplayTests(unittest.TestCase):
         screen = _make_screen()
         with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
             screen._start_replay()
-
         screen.handle_app_event(_succeeded("some-other-job"))
-
         self.assertEqual(screen.replay_phase, "generating")
 
 

@@ -647,6 +647,7 @@ class MogMirrorScreen:
             metadata={"manual_override": self.manual_override, "scores": {row["display_name"]: row["score"] for row in rows}},
         )
         self.manager.state.reveal_rows = rows
+        self.manager.state.last_session_id = self.session_id
         self.manager.go_to("score_reveal")
 
     def _average_live_score(self, lane: MirrorLane) -> int | None:

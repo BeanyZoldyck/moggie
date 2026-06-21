@@ -255,6 +255,35 @@ class LeaderboardService:
         self._set_cache(cache_key, entries)
         return entries
 
+    def record_media_asset(
+        self,
+        session_id: str,
+        kind: str,
+        uri: str,
+        *,
+        storage_mode: str = "remote",
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Persist a generated media asset (video URL or local path) to the DB.
+
+        Returns the new asset id. ``kind`` is a dotted game+type string like
+        ``"mog_mirror.recap_video"``. ``storage_mode`` is ``"remote"`` for a
+        fal.ai URL or ``"local"`` for a file saved to ``MOGGIE_MEDIA_DIR``.
+        """
+        asset_id = new_id("media")
+        metadata_json = json.dumps(metadata or {})
+        created_at = utc_now_iso()
+        with connect(self.db_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO media_assets (id, session_id, player_id, kind, storage_mode, uri, metadata_json, created_at)
+                VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
+                """,
+                (asset_id, session_id, kind, storage_mode, uri, metadata_json, created_at),
+            )
+        LOGGER.debug("Recorded media asset %s kind=%s uri=%.80s", asset_id, kind, uri)
+        return asset_id
+
     def recent_media_assets(self, limit: int = 6) -> list[dict[str, Any]]:
         limit = max(1, min(50, limit))
         with connect(self.db_path) as connection:

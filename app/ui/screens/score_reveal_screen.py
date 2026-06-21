@@ -5,9 +5,12 @@ import queue
 from pathlib import Path
 from typing import Any
 
+import shutil
+import tempfile
+
 from app.core.app_event import EVENT_AI_JOB_UPDATE, AppEvent
 from app.core.game_catalog import game_for_type
-from app.games.mog_mirror import MOG_REPLAY_NEGATIVE_PROMPT, build_replay_prompt
+from app.games.recap_prompts import RECAP_NEGATIVE_PROMPT, build_recap_prompt
 from app.ui import theme
 from app.ui.render_utils import (
     FontSet,
@@ -42,7 +45,7 @@ class ScoreRevealScreen:
         self.replay_job_id: str | None = None
         self.replay_player: LoopingVideoPlayer | None = None
         self.replay_error = ""
-        self._replay_queue: "queue.Queue[Path | None]" = queue.Queue()
+        self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
 
     def on_enter(self, **_: Any) -> None:
         active_job_ids = {
@@ -59,7 +62,7 @@ class ScoreRevealScreen:
         self.replay_phase = "idle"
         self.replay_job_id = None
         self.replay_error = ""
-        self._replay_queue = queue.Queue()
+        self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
 
     def handle_event(self, event: Any) -> None:
         pygame = _pygame()
@@ -100,16 +103,16 @@ class ScoreRevealScreen:
             result = metadata.get("result") or {}
             url = result.get("uri") or result.get("video_url")
             if isinstance(url, str) and url:
-                LOGGER.info("Mog replay: generated video %s", url)
+                LOGGER.info("Recap: generated video %s", url)
                 self.replay_phase = "downloading"
-                download_in_background(url, lambda path: self._replay_queue.put(path))
+                download_in_background(url, lambda path, u=url: self._replay_queue.put((path, u)))
             else:
                 self.replay_phase = "failed"
                 self.replay_error = "no video URL in result"
         elif status in {"failed", "timed_out"}:
             self.replay_phase = "failed"
             self.replay_error = str(metadata.get("error") or status)
-            LOGGER.warning("Mog replay: job %s (%s)", status, self.replay_error)
+            LOGGER.warning("Recap: job %s (%s)", status, self.replay_error)
 
     # ------------------------------------------------------------------
     # Replay generation
@@ -123,11 +126,11 @@ class ScoreRevealScreen:
             and getattr(config, "enable_pika", False)
             and service is not None
             and image is not None
-            and self.manager.state.selected_game_type == "mog_mirror"
         )
 
     def _start_replay(self) -> None:
         service = self.manager.ai_job_service
+        game_type = self.manager.state.selected_game_type
         image = self.manager.state.reveal_replay_image
         image_bytes = encode_bgr_jpeg(image)
         if not image_bytes:
@@ -135,22 +138,22 @@ class ScoreRevealScreen:
             self.replay_error = "could not encode capture"
             return
         payload = {
-            "game_type": "mog_mirror",
+            "game_type": game_type,
             "image_bytes": image_bytes,
             "image_mime_type": "image/jpeg",
-            "prompt": build_replay_prompt(self.manager.state.reveal_rows),
-            "negative_prompt": MOG_REPLAY_NEGATIVE_PROMPT,
+            "prompt": build_recap_prompt(game_type, self.manager.state.reveal_rows),
+            "negative_prompt": RECAP_NEGATIVE_PROMPT,
             "has_crop": True,
         }
-        self.replay_job_id = service.submit("mog_mirror.replay_video", payload)
+        self.replay_job_id = service.submit(f"{game_type}.recap_video", payload)
         self.replay_phase = "generating"
         self.replay_error = ""
-        LOGGER.info("Mog replay: submitted job %s", self.replay_job_id)
+        LOGGER.info("Recap: submitted job %s for %s", self.replay_job_id, game_type)
 
     def _drain_replay_queue(self) -> None:
         while True:
             try:
-                path = self._replay_queue.get_nowait()
+                path, url = self._replay_queue.get_nowait()
             except queue.Empty:
                 break
             if path is None:
@@ -166,7 +169,37 @@ class ScoreRevealScreen:
             self._close_replay()
             self.replay_player = player
             self.replay_phase = "ready"
-            LOGGER.info("Mog replay: ready (%s)", path)
+            saved_path = self._save_replay(path, url)
+            LOGGER.info("Recap: ready — tmp=%s saved=%s url=%s", path, saved_path, url)
+
+    def _save_replay(self, tmp_path: Path, remote_url: str) -> Path | None:
+        """If MOGGIE_SAVE_GENERATED_MEDIA is set, copy the clip to MOGGIE_MEDIA_DIR
+        and record it in the DB. Returns the saved path (or None if saving is off)."""
+        config = getattr(self.manager, "config", None)
+        if config is None or not getattr(config, "save_generated_media", False):
+            return None
+        try:
+            game_type = self.manager.state.selected_game_type
+            media_dir: Path = config.media_dir
+            media_dir.mkdir(parents=True, exist_ok=True)
+            dest = media_dir / f"{game_type}_recap_{tmp_path.stem}.mp4"
+            shutil.copy2(tmp_path, dest)
+            # Record in DB so recent_media_assets() / the idle attract strip can show it.
+            session_id = getattr(self.manager.state, "last_session_id", None)
+            leaderboard = getattr(self.manager, "leaderboard_service", None)
+            if leaderboard is not None and session_id is not None:
+                leaderboard.record_media_asset(
+                    session_id,
+                    f"{game_type}.recap_video",
+                    str(dest),
+                    storage_mode="local",
+                    metadata={"remote_url": remote_url, "game_type": game_type},
+                )
+            LOGGER.info("Recap saved to %s", dest)
+            return dest
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("Recap save failed: %s", exc)
+            return None
 
     def _close_replay(self) -> None:
         if self.replay_player is not None:
