@@ -223,41 +223,26 @@ class MogMirrorScreen:
         )
         self._render_mirror_fx(pygame, surface, preview_rect or camera_rect.inflate(-6, -6), faces, pygame.time.get_ticks())
 
-        panel_y = height - 170
-        lane_w = (width - 108 - 24) // 2
+        panel_y = height - 120
         now_ms = pygame.time.get_ticks()
-        for index, lane in enumerate(self.lanes):
-            rect = pygame.Rect(42 + index * (lane_w + 24), panel_y, lane_w, 100)
-            color = theme.PLAYER_COLORS[index % len(theme.PLAYER_COLORS)]
-            detected = lane.face is not None
-            draw_panel(pygame, surface, rect, fill=theme.SURFACE, border=color if detected else theme.BORDER, width=2)
-            draw_text(surface, lane.name, fonts.body, theme.TEXT, (rect.left + 24, rect.top + 18), max_width=rect.width - 190)
-            draw_text(surface, lane.zone.upper(), fonts.small, color, (rect.left + 24, rect.bottom - 32))
-            status = "FACE LOCK" if detected else "REPOSITION"
-            if self.started_at_ms is None:
-                draw_text(surface, status, fonts.body, color if detected else theme.TEXT_MUTED, (rect.right - 24, rect.centery), anchor="midright")
-            else:
-                draw_text(surface, "MOG SCORE", fonts.small, theme.TEXT_MUTED, (rect.right - 24, rect.top + 18), anchor="topright")
-                self._draw_live_score(pygame, surface, rect, lane, color, now_ms)
 
         for index, lane in enumerate(self.lanes):
             color = (255, 60, 160) if index == 0 else (0, 130, 255)
 
-            score_text = "--" if lane.live_score is None else f"{lane.live_score}"
-
             if index == 0:
-                score_pos = (int(width * 0.25), panel_y)
+                rect = pygame.Rect(50, height - 205, 260, 120)
             else:
-                score_pos = (int(width * 0.74), panel_y)
+                rect = pygame.Rect(655, height - 205, 260, 120)
 
-            draw_text(
+            self._draw_live_score(
+                pygame,
                 surface,
-                score_text,
-                fonts.title,
+                rect,
+                lane,
                 color,
-                score_pos,
-                anchor="center",
+                now_ms,
             )
+
         countdown = self._countdown_label()
         if countdown is not None:
             draw_text(surface, countdown, fonts.title, (255, 220, 40), (width // 2, height // 2 - 70), anchor="center")
@@ -303,7 +288,7 @@ class MogMirrorScreen:
                 "prompt": MOG_AVATAR_PROMPT,
                 "negative_prompt": MOG_AVATAR_NEGATIVE_PROMPT,
                 "has_crop": crop is not None,
-            }
+            } 
             job_id = service.submit("mog_mirror.avatar_video", payload)
             self.avatar_jobs[lane.zone] = job_id
             self.avatar_status[lane.zone] = "generating"
@@ -677,7 +662,7 @@ class MogMirrorScreen:
             size = (max(1, int(size[0] * fit)), max(1, int(size[1] * fit)))
         if size != image.get_size():
             image = pygame.transform.smoothscale(image, size)
-        score_rect = image.get_rect(midright=(rect.right - 24, rect.bottom - 54))
+        score_rect = image.get_rect(midright=(rect.right + 60, rect.bottom - 54))
         shadow = image.copy()
         shadow.fill((12, 32, 16), special_flags=pygame.BLEND_RGB_MULT)
         surface.blit(shadow, score_rect.move(2, 2))
