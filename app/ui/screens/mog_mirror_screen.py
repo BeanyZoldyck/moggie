@@ -22,11 +22,15 @@ class MirrorLane:
     name: str
     zone: str
     face: dict[str, Any] | None = None
+    live_score: int | None = None
+    live_score_updated_at_ms: int | None = None
 
 
 class MogMirrorScreen:
     name = "mog_mirror"
-    countdown_ms = 3_000
+    live_score_duration_ms = 10_000
+    live_score_update_interval_ms = 500
+    countdown_ms = live_score_duration_ms
 
     def __init__(self, manager: Any) -> None:
         self.manager = manager
@@ -80,7 +84,8 @@ class MogMirrorScreen:
         if self.started_at_ms is None:
             return
         elapsed_ms = now_ms - self.started_at_ms
-        if elapsed_ms >= self.countdown_ms:
+        self._update_live_scores(now_ms)
+        if elapsed_ms >= self.live_score_duration_ms:
             self._finish_round()
 
     def render(self, surface: Any) -> None:
@@ -102,7 +107,7 @@ class MogMirrorScreen:
             if self.manager.camera_service is not None
             else "Camera service is not configured."
         )
-        self.preview_renderer.render(
+        preview_rect = self.preview_renderer.render(
             surface,
             camera_rect,
             frame_bgr=frame,
@@ -112,7 +117,7 @@ class MogMirrorScreen:
         faces = self._faces()
         self.face_renderer.render(
             surface,
-            camera_rect.inflate(-6, -6),
+            preview_rect or camera_rect.inflate(-6, -6),
             faces,
             split_x=self.manager.config.zone_split_x,
         )
@@ -127,7 +132,12 @@ class MogMirrorScreen:
             draw_text(surface, lane.name, fonts.body, theme.TEXT, (rect.left + 24, rect.top + 18), max_width=rect.width - 190)
             draw_text(surface, lane.zone.upper(), fonts.small, color, (rect.left + 24, rect.bottom - 32))
             status = "FACE LOCK" if detected else "REPOSITION"
-            draw_text(surface, status, fonts.body, color if detected else theme.TEXT_MUTED, (rect.right - 24, rect.centery), anchor="midright")
+            if self.started_at_ms is None:
+                draw_text(surface, status, fonts.body, color if detected else theme.TEXT_MUTED, (rect.right - 24, rect.centery), anchor="midright")
+            else:
+                score_text = "--" if lane.live_score is None else f"{lane.live_score}"
+                draw_text(surface, "MOG SCORE", fonts.small, theme.TEXT_MUTED, (rect.right - 24, rect.top + 18), anchor="topright")
+                draw_text(surface, score_text, fonts.card_title, color, (rect.right - 24, rect.bottom - 54), anchor="midright")
 
         countdown = self._countdown_label()
         if countdown is not None:
@@ -171,21 +181,45 @@ class MogMirrorScreen:
             return None
         return str(max(1, (remaining + 999) // 1000))
 
-    def _finish_round(self) -> None:
-        if self.finished or self.session_id is None:
+    def _update_live_scores(self, now_ms: int, *, force: bool = False) -> None:
+        if self.session_id is None:
             return
-        self.finished = True
-        snapshot = self.manager.camera_service.snapshot() if self.manager.camera_service is not None else None
-        frame = snapshot.display_bgr if snapshot is not None else None
-        scored = []
         for lane in self.lanes:
-            score = score_aura(
+            if (
+                not force
+                and lane.live_score_updated_at_ms is not None
+                and now_ms - lane.live_score_updated_at_ms < self.live_score_update_interval_ms
+            ):
+                continue
+            lane.live_score = score_aura(
                 session_id=self.session_id,
                 display_name=lane.name,
                 zone=lane.zone,
                 face=lane.face,
                 manual_override=self.manual_override,
+                sample_ms=now_ms - self.started_at_ms if self.started_at_ms is not None else now_ms,
             )
+            lane.live_score_updated_at_ms = now_ms
+
+    def _finish_round(self) -> None:
+        if self.finished or self.session_id is None:
+            return
+        self.finished = True
+        now_ms = self.started_at_ms + self.live_score_duration_ms if self.started_at_ms is not None else 0
+        self._update_live_scores(now_ms, force=True)
+        snapshot = self.manager.camera_service.snapshot() if self.manager.camera_service is not None else None
+        frame = snapshot.display_bgr if snapshot is not None else None
+        scored = []
+        for lane in self.lanes:
+            score = lane.live_score
+            if score is None:
+                score = score_aura(
+                    session_id=self.session_id,
+                    display_name=lane.name,
+                    zone=lane.zone,
+                    face=lane.face,
+                    manual_override=self.manual_override,
+                )
             scored.append((lane, score))
         high_score = max(score for _, score in scored)
 
