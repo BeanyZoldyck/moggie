@@ -13,6 +13,7 @@ from app.ui.render_utils import (
     draw_button,
     draw_panel,
     draw_text,
+    scaled_asset_image
 )
 
 
@@ -78,14 +79,14 @@ class PlayerSetupScreen:
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-        surface.fill(theme.BACKGROUND)
+        bg = scaled_asset_image(pygame, "player_name_bg.png", (width, height))
+        if bg is not None:
+            surface.blit(bg, (0, 0))
+        else:
+            surface.fill(theme.BACKGROUND)
 
         game = game_for_type(self.manager.state.selected_game_type)
-        pygame.draw.rect(surface, (31, 24, 24), pygame.Rect(0, 0, width, 118))
-        pygame.draw.rect(surface, game.accent, pygame.Rect(0, 118, width, 4))
-        draw_text(surface, game.title.upper(), fonts.title, theme.TEXT, (48, 30), max_width=width - 260)
-        badge_rect = pygame.Rect(width - 160, 42, 102, 34)
-        draw_badge(pygame, surface, badge_rect, game.badge, fonts.small, accent=game.accent)
+
 
         panel_w = min(920, width - 96)
         panel_x = (width - panel_w) // 2
@@ -93,29 +94,24 @@ class PlayerSetupScreen:
         field_gap = 28
         field_h = 112
         for index, raw_value in enumerate(self.values):
-            rect = pygame.Rect(panel_x, start_y + index * (field_h + field_gap), panel_w, field_h)
+            if index == 0:
+                rect = pygame.Rect(
+                    panel_x,
+                    start_y,
+                    panel_w,
+                    field_h
+                )
+            else:
+                rect = pygame.Rect(
+                    panel_x,
+                    start_y + field_h + field_gap + 30,
+                    panel_w,
+                    field_h
+                )
             selected = index == self.active_field
             border = game.accent if selected else theme.BORDER
-            draw_panel(
-                pygame,
-                surface,
-                rect,
-                fill=(38, 31, 35) if selected else theme.SURFACE,
-                border=border,
-                width=3 if selected else 1,
-            )
-            zone_label = "LEFT ZONE" if index == 0 else "RIGHT ZONE"
             if len(self.values) == 1:
                 zone_label = "CENTER ZONE"
-            draw_text(surface, f"PLAYER {index + 1}", fonts.small, theme.TEXT_MUTED, (rect.left + 26, rect.top + 18))
-            draw_text(
-                surface,
-                zone_label,
-                fonts.small,
-                game.accent if selected else theme.TEXT_MUTED,
-                (rect.right - 26, rect.top + 18),
-                anchor="topright",
-            )
             fallback = f"Player {index + 1}"
             value = raw_value if raw_value else fallback
             color = theme.TEXT if raw_value else theme.TEXT_MUTED
@@ -124,7 +120,7 @@ class PlayerSetupScreen:
                 value,
                 fonts.card_title,
                 color,
-                (rect.left + 26, rect.top + 52),
+                (rect.left + 400, rect.top + 105),
                 max_width=rect.width - 72,
             )
             if selected and self.cursor_visible:
@@ -137,17 +133,6 @@ class PlayerSetupScreen:
                     3,
                 )
 
-        button_y = height - 132
-        button_rect = pygame.Rect((width - 288) // 2, button_y, 288, 60)
-        draw_button(
-            pygame,
-            surface,
-            button_rect,
-            "LOCK NAMES",
-            fonts.body,
-            selected=True,
-            accent=game.accent,
-        )
         draw_bottom_rule(pygame, surface, height - 44, width)
         draw_text(surface, "MOGGIE", fonts.small, theme.TEXT_MUTED, (48, height - 32))
 
