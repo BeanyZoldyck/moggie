@@ -21,10 +21,9 @@ def _pygame() -> Any:
 
 
 class MoggieApp:
-    target_fps = 30
-
     def __init__(self, config: MoggieConfig) -> None:
         self.config = config
+        self.target_fps = config.target_fps
         self.event_bus = EventBus()
         self.leaderboard_service = LeaderboardService.from_config(config)
         self.camera_service = CameraService.from_config(config)
