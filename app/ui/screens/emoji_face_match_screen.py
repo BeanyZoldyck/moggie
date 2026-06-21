@@ -54,7 +54,7 @@ class EmojiFaceMatchScreen:
     countdown_ms = 3_000
     spawn_interval_ms = 1_700
     travel_ms = 3_000
-    target_progress = 0.72
+    target_progress = 0.74
 
     def __init__(self, manager: Any) -> None:
         self.manager = manager
@@ -67,6 +67,7 @@ class EmojiFaceMatchScreen:
         self.finished = False
         self.message = "CENTER FACES IN THE LANES"
         self.manual_override = False
+        self.emoji_images = {}
 
     def on_enter(self, **_: Any) -> None:
         config = self.manager.config
@@ -142,13 +143,7 @@ class EmojiFaceMatchScreen:
         else:
             surface.fill(theme.BACKGROUND)
 
-        pygame.draw.rect(surface, (31, 24, 28), pygame.Rect(0, 0, width, 104))
-        pygame.draw.rect(surface, (255, 96, 116), pygame.Rect(0, 104, width, 4))
-        draw_text(surface, "EMOJI FACE MATCH", fonts.title, theme.TEXT, (42, 22), max_width=width - 410)
-        draw_text(surface, self._clock_label(), fonts.card_title, (255, 96, 116), (width - 48, 34), anchor="topright")
-
-        top_h = max(232, int(height * 0.42))
-        camera_rect = pygame.Rect(42, 132, width - 84, top_h)
+        camera_rect = pygame.Rect(100, 115, 1080, 290)
         frame = self.manager.camera_service.latest_display_frame() if self.manager.camera_service is not None else None
         diagnostic = (
             self.manager.camera_service.diagnostic_message
@@ -181,7 +176,7 @@ class EmojiFaceMatchScreen:
 
         countdown = self._countdown_label()
         if countdown is not None:
-            draw_text(surface, countdown, fonts.masthead, (255, 96, 116), (width // 2, height // 2), anchor="center")
+            draw_text(surface, countdown, fonts.masthead, theme.WARNING, (width // 2, height // 2 - 120), anchor="center")
 
         draw_bottom_rule(pygame, surface, height - 44, width)
         help_text = "SPACE STARTS / ESC HOME"
@@ -192,20 +187,38 @@ class EmojiFaceMatchScreen:
 
     def _render_lane(self, pygame: Any, surface: Any, rect: Any, lane: EmojiLane, index: int, now_ms: int) -> None:
         assert self.fonts is not None
-        color = theme.PLAYER_COLORS[index % len(theme.PLAYER_COLORS)]
+        if index == 0:
+            color = (255, 60, 60)      # red for Player 1
+        else:
+            color = (0, 130, 255)      # blue for Player 2
         active = lane in self._active_lanes(max(0, self._play_elapsed_ms(now_ms)))
         border = color if lane.face is not None or self.manual_override else theme.BORDER
         fill = (38, 28, 34) if active else theme.SURFACE
-        draw_panel(pygame, surface, rect, fill=fill, border=border, width=2)
-        draw_text(surface, lane.name, self.fonts.body, theme.TEXT, (rect.left + 22, rect.top + 14), max_width=rect.width // 3)
-        draw_text(surface, f"{lane.zone.upper()} / STREAK {lane.streak}", self.fonts.small, color, (rect.left + 22, rect.bottom - 34))
+        if lane.zone == "p2":
+            streak_y = rect.bottom - 64
+        else:
+            streak_y = rect.bottom - 34
+
+        draw_text(
+            surface,
+            f"STREAK {lane.streak}",
+            self.fonts.small,
+            color,
+            (rect.centerx, streak_y),
+            anchor="center",
+        )
         self._draw_lane_score(pygame, surface, rect, lane, color, now_ms)
 
-        track = pygame.Rect(rect.left + 245, rect.top + 18, max(260, rect.width - 410), rect.height - 36)
+        track_y = rect.top + 25
+
+        if lane.zone == "p2":
+            track_y = rect.top - 10
+
+        track = pygame.Rect(rect.left + 245, track_y, max(260, rect.width - 410), rect.height - 36)   
+
         pygame.draw.line(surface, theme.DIM_BORDER, (track.left, track.centery), (track.right, track.centery), 2)
         target_x = track.left + int(track.width * self.target_progress)
-        pygame.draw.line(surface, (255, 96, 116), (target_x, track.top), (target_x, track.bottom), 4)
-        draw_text(surface, "MATCH", self.fonts.small, (255, 96, 116), (target_x, track.top - 2), anchor="midbottom")
+
         self._render_target_gate_fx(pygame, surface, track, lane, color, now_ms)
 
         for target in lane.targets:
@@ -222,13 +235,27 @@ class EmojiFaceMatchScreen:
                 if not target.hit:
                     pygame.draw.line(surface, fx_color, glyph_rect.topleft, glyph_rect.bottomright, 3)
                     pygame.draw.line(surface, fx_color, glyph_rect.topright, glyph_rect.bottomleft, 3)
-            pygame.draw.rect(surface, theme.SURFACE_DARK, glyph_rect, border_radius=8)
-            pygame.draw.rect(surface, trail_color if not target.scored else theme.TEXT_MUTED, glyph_rect, 2, border_radius=8)
-            draw_text(surface, expression_glyph(target.expression), self.fonts.body, theme.TEXT, glyph_rect.center, anchor="center")
 
-        feedback_color = theme.ACCENT if lane.feedback.startswith("HIT") else theme.TEXT_MUTED
-        if lane.feedback_until_ms > now_ms:
-            draw_text(surface, lane.feedback, self.fonts.small, feedback_color, (rect.right - 150, rect.bottom - 34), anchor="topright")
+            emoji_filename = {
+                "neutral": "neutral.png",
+                "smile": "smile.png",
+                "surprised": "surprised.png",
+                "tongue_out": "tongue.png",
+                "wink": "wink.png",
+                "look_left": "left.png",
+                "look_right": "right.png",
+            }.get(target.expression)
+
+            emoji_image = scaled_asset_image(pygame, emoji_filename, (48, 48)) if emoji_filename else None
+
+            if emoji_image is not None:
+                emoji_rect = emoji_image.get_rect(center=glyph_rect.center)
+                surface.blit(emoji_image, emoji_rect)
+            else:
+                draw_text(surface, expression_glyph(target.expression), self.fonts.body, theme.TEXT, glyph_rect.center, anchor="center")
+            feedback_color = theme.ACCENT if lane.feedback.startswith("HIT") else theme.TEXT_MUTED
+            if lane.feedback_until_ms > now_ms:
+                draw_text(surface, lane.feedback, self.fonts.small, feedback_color, (rect.right - 150, rect.bottom - 34), anchor="topright")
 
     def _sync_faces(self) -> None:
         faces = self._faces()
@@ -337,7 +364,10 @@ class EmojiFaceMatchScreen:
             size = (max(1, int(size[0] * fit)), max(1, int(size[1] * fit)))
         if size != image.get_size():
             image = pygame.transform.smoothscale(image, size)
-        score_rect = image.get_rect(midright=(rect.right - 24, rect.centery))
+        if lane.zone == "p2":
+            score_rect = image.get_rect(midright=(rect.right - 72, rect.centery - 34))
+        else:
+            score_rect = image.get_rect(midright=(rect.right - 72, rect.centery))
         surface.blit(image, score_rect)
         if lane.streak >= 2:
             draw_text(surface, f"x{lane.streak}", self.fonts.small, score_color, (score_rect.right, score_rect.top - 14), anchor="topright")

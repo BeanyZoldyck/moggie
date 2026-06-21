@@ -68,7 +68,7 @@ class HandOverlayRenderer:
             pygame.draw.rect(surface, (60, 32, 36), rect, 4)
             draw_text(surface, "STALE TRACKING", self.fonts.small, theme.ERROR, (rect.left + 16, rect.bottom - 34))
         elif not hands:
-            draw_text(surface, "SHOW HANDS", self.fonts.small, dim_green, (rect.centerx, rect.centery), anchor="center")
+            draw_text(surface, "SHOW HANDS", self.fonts.title, theme.WARNING, (rect.centerx, rect.centery), anchor="center")
 
     def _to_screen(
         self,

@@ -285,13 +285,13 @@ class ScoreRevealScreen:
         panel_w = min(920, width - 96)
         panel_x = (width - panel_w) // 2
         row_h = 132 if any(row.get("crop_bgr") is not None for row in rows) else 104
-        start_y = 174
+        start_y = 260
         for index, row in enumerate(rows):
-            rect = pygame.Rect(panel_x, start_y + index * (row_h + 24), panel_w, row_h)
-            color = theme.PLAYER_COLORS[index % len(theme.PLAYER_COLORS)]
+            rect = pygame.Rect(panel_x, start_y + index * row_h, panel_w, row_h)
+            color = (0, 130, 255) if index == 0 else (255, 60, 160)
             border = theme.WARNING if row.get("winner") else color
             self._draw_winner_fx(pygame, surface, rect, border, active=bool(row.get("winner")))
-            draw_panel(pygame, surface, rect, fill=theme.SURFACE, border=border, width=2)
+            draw_panel(pygame, surface, rect, fill=(20, 45, 95), border=border, width=2)
             crop_rect = pygame.Rect(rect.left + 18, rect.top + 14, 96, rect.height - 28)
             if row.get("crop_bgr") is not None:
                 self._draw_crop(pygame, surface, crop_rect, row["crop_bgr"], color)
@@ -301,7 +301,17 @@ class ScoreRevealScreen:
             draw_text(surface, f"P{index + 1}", fonts.body, border, (rect.left + 26, rect.top + 18))
             self._draw_row_details(surface, row, fonts, text_x, rect)
             score = "--" if row.get("score") is None else str(row["score"])
+            if row.get("winner"):
+                draw_text(
+                    surface,
+                    "WINNER",
+                    fonts.body,
+                    theme.WARNING,
+                    (rect.centerx, rect.centery - 28),
+                    anchor="center",
+                )
             self._draw_score_pop(pygame, surface, score, fonts.card_title, theme.TEXT, (rect.right - 50, rect.centery), active=bool(row.get("winner")))
+
 
     def _render_mog_mirror_portraits(
         self,
@@ -358,10 +368,10 @@ class ScoreRevealScreen:
             draw_text(
                 surface,
                 label_text,
-                fonts.small,
-                theme.TEXT_MUTED,
-                (text_x, rect.bottom - 38),
-                max_width=rect.width - (text_x - rect.left) - 230,
+                fonts.body,
+                theme.TEXT,
+                (rect.centerx, rect.centery),
+                anchor="center",
             )
 
     def _draw_crop(

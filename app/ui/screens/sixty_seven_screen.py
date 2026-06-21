@@ -135,13 +135,8 @@ class SixtySevenScreen:
             surface.blit(bg, (0, 0))
         else:
             surface.fill(theme.BACKGROUND)
-
-        pygame.draw.rect(surface, (31, 24, 24), pygame.Rect(0, 0, width, 104))
-        pygame.draw.rect(surface, theme.WARNING, pygame.Rect(0, 104, width, 4))
-        draw_text(surface, "67 CHALLENGE", fonts.title, theme.TEXT, (42, 22), max_width=width - 360)
-        draw_text(surface, self._clock_label(), fonts.card_title, theme.WARNING, (width - 48, 34), anchor="topright")
-
-        camera_rect = pygame.Rect(42, 132, width - 84, max(260, height - 332))
+        
+        camera_rect = pygame.Rect(90, 135, 1100, 330)
         frame = self.manager.camera_service.latest_display_frame() if self.manager.camera_service is not None else None
         diagnostic = (
             self.manager.camera_service.diagnostic_message
@@ -178,12 +173,11 @@ class SixtySevenScreen:
         panel_y = height - 174
         lane_w = (width - 108 - 24 * (len(self.lanes) - 1)) // len(self.lanes)
         for index, lane in enumerate(self.lanes):
-            rect = pygame.Rect(42 + index * (lane_w + 24), panel_y, lane_w, 104)
+            if index == 0:
+                rect = pygame.Rect(172, height - 210, 220, 80)
+            else:
+                rect = pygame.Rect(width - 390, height - 210, 220, 80)
             color = theme.PLAYER_COLORS[index % len(theme.PLAYER_COLORS)]
-            fill = (52, 44, 29) if lane.pulse_until_ms > now_ms else theme.SURFACE
-            draw_panel(pygame, surface, rect, fill=fill, border=color, width=2)
-            draw_text(surface, lane.name, fonts.body, theme.TEXT, (rect.left + 24, rect.top + 18), max_width=rect.width - 160)
-            draw_text(surface, lane.zone.upper(), fonts.small, color, (rect.left + 24, rect.bottom - 34))
             self._draw_score(pygame, surface, rect, lane, fonts)
 
         if self._countdown_label():
@@ -251,7 +245,7 @@ class SixtySevenScreen:
             scaled_height = int(scaled_height * fit)
         if scaled_width != image.get_width() or scaled_height != image.get_height():
             image = pygame.transform.smoothscale(image, (max(1, scaled_width), max(1, scaled_height)))
-        score_rect = image.get_rect(midright=(rect.right - 28, rect.centery))
+        score_rect = image.get_rect(center=rect.center)
         shadow = image.copy()
         shadow.fill((42, 14, 16), special_flags=pygame.BLEND_RGB_MULT)
         surface.blit(shadow, score_rect.move(3, 3))
@@ -311,7 +305,7 @@ class SixtySevenScreen:
                     "label": label,
                     "rank": score.rank,
                     "winner": score_value == high_score,
-                    "ai_job_ids": [],
+                    "ai_job_ids": ai_job_ids,
                 }
             )
         self.manager.leaderboard_service.complete_session(
