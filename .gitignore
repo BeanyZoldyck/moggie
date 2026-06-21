@@ -11,3 +11,5 @@ data/*.sqlite-*
 media/*
 !data/.gitkeep
 !media/.gitkeep
+*.mp4
+*.png
