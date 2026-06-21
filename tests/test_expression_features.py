@@ -65,6 +65,22 @@ class ExpressionFeatureTests(unittest.TestCase):
         self.assertTrue(result.hit)
         self.assertEqual(result.points, 100)
 
+    def test_target_specific_judging_ignores_noisy_tongue_for_smile_and_surprise(self) -> None:
+        noisy_smile = evaluate_match("smile", {"smile": 0.8, "tongue_out": 0.8, "mouth_open": 0.35})
+        noisy_surprise = evaluate_match("surprised", {"mouth_open": 0.8, "tongue_out": 0.8})
+
+        self.assertTrue(noisy_smile.hit)
+        self.assertTrue(noisy_surprise.hit)
+
+    def test_deadpan_requires_low_expression_activity(self) -> None:
+        self.assertTrue(evaluate_match("neutral", {"smile": 0.1, "mouth_open": 0.1}).hit)
+        self.assertFalse(evaluate_match("neutral", {"smile": 0.7}).hit)
+        self.assertFalse(evaluate_match("neutral", {"tongue_out": 0.8, "mouth_open": 0.4}).hit)
+
+    def test_tongue_out_requires_tongue_and_open_mouth(self) -> None:
+        self.assertFalse(evaluate_match("tongue_out", {"tongue_out": 0.9, "mouth_open": 0.1}).hit)
+        self.assertTrue(evaluate_match("tongue_out", {"tongue_out": 0.9, "mouth_open": 0.5}).hit)
+
     def test_expression_sequence_is_deterministic_without_immediate_repeats(self) -> None:
         sequence = build_expression_sequence("session-1", 12)
 

@@ -130,6 +130,13 @@ class MogMirrorTests(unittest.TestCase):
         self.assertNotEqual(screen.lanes[0].live_score, first_score)
         self.assertEqual(screen.lanes[0].live_score_updated_at_ms, 1_500)
 
+    def test_final_score_uses_average_live_score(self) -> None:
+        screen = MogMirrorScreen(SimpleNamespace())
+        lane = MirrorLane(name="Mina", zone="p1", live_score=90)
+        lane.live_score_samples.extend([40, 70, 91])
+
+        self.assertEqual(screen._average_live_score(lane), 67)
+
 
 def _mog_face(offset: float = 0.0) -> dict[str, object]:
     return {
