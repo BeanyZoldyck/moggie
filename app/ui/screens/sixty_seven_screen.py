@@ -100,7 +100,11 @@ class SixtySevenScreen:
         hands = []
         frame_timestamp_ms = None
         if state is not None:
-            hands = list(state.hand_landmarks.get("hands", []))
+            hands = [
+                hand
+                for hand in state.hand_landmarks.get("hands", [])
+                if not str(hand.get("source", "")).startswith("simple_")
+            ]
             frame_timestamp_ms = state.timestamp_ms
 
         event_now_ms = current_time_ms()
@@ -154,11 +158,15 @@ class SixtySevenScreen:
             split_pane=True,
         )
         state = self.manager.cv_service.latest_state() if self.manager.cv_service is not None else None
-        hands = list(state.hand_landmarks.get("hands", [])) if state is not None else []
+        hands = [
+            hand
+            for hand in state.hand_landmarks.get("hands", [])
+            if not str(hand.get("source", "")).startswith("simple_")
+        ] if state is not None else []
         stale = any(lane.counter.stale for lane in self.lanes)
         effect_rect = camera_rect.inflate(-6, -6)
         now_ms = pygame.time.get_ticks()
-        self._render_tracking_fx(pygame, surface, effect_rect, hands, now_ms)
+        self._render_tracking_fx(pygame, surface, effect_rect, now_ms)
         self.hand_renderer.render(
             surface,
             effect_rect,
@@ -203,8 +211,7 @@ class SixtySevenScreen:
             return None
         return str(max(1, (self.countdown_ms - elapsed_ms + 999) // 1000))
 
-    def _render_tracking_fx(self, pygame: Any, surface: Any, rect: Any, hands: list[dict[str, Any]], now_ms: int) -> None:
-        lane_by_zone = {lane.zone: lane for lane in self.lanes}
+    def _render_tracking_fx(self, pygame: Any, surface: Any, rect: Any, now_ms: int) -> None:
         divider_x = rect.left + int(rect.width * self.manager.config.zone_split_x)
 
         for lane in self.lanes:
@@ -227,38 +234,6 @@ class SixtySevenScreen:
                 phase_x = int((now_ms // 8 + offset) % max(1, zone_rect.width))
                 x = zone_rect.left + phase_x if lane.zone == "p1" else zone_rect.right - phase_x
                 pygame.draw.line(surface, (80, 60, 54), (x, zone_rect.top + 22), (x - 26 if lane.zone == "p1" else x + 26, zone_rect.top + 34), 1)
-
-        for hand in hands[:8]:
-            palm = hand.get("palm_center")
-            if not isinstance(palm, dict):
-                continue
-            zone = str(hand.get("zone", ""))
-            lane = lane_by_zone.get(zone)
-            heat = self._speed_heat(lane) if lane is not None else 0.0
-            if heat <= 0.03:
-                continue
-            center = self.preview_renderer.point_to_screen(palm, zone=zone, fallback_rect=rect)
-            if center is None:
-                continue
-            color = self._heat_color(heat)
-            direction = -1 if zone == "p2" else 1
-            length = int(18 + heat * 42)
-            spread = int(8 + heat * 18)
-            for index in range(3):
-                y_offset = (index - 1) * spread
-                pygame.draw.line(
-                    surface,
-                    color if index == 1 else (102, 82, 70),
-                    (center[0] - direction * length, center[1] + y_offset),
-                    (center[0] + direction * 8, center[1] + y_offset // 2),
-                    2 if index == 1 else 1,
-                )
-            radius = int(16 + heat * 24)
-            arc_rect = pygame.Rect(center[0] - radius, center[1] - radius, radius * 2, radius * 2)
-            start = ((now_ms // 90) % 8) * 0.35
-            pygame.draw.arc(surface, (94, 88, 82), arc_rect, start, start + 1.9, 2)
-            pygame.draw.line(surface, color, (center[0] - 7, center[1]), (center[0] + 7, center[1]), 2)
-            pygame.draw.line(surface, color, (center[0], center[1] - 7), (center[0], center[1] + 7), 2)
 
     def _draw_score(self, pygame: Any, surface: Any, rect: Any, lane: PlayerLane, fonts: FontSet) -> None:
         heat = self._speed_heat(lane)

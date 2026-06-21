@@ -32,11 +32,14 @@ class HandLandmarkService:
             cv2_module=cv2_module,
         )
         self._use_fallback = False
+        self._load_failed = False
         self.available = False
         self.diagnostic = "Hand landmark detector has not been started."
 
     def start(self) -> None:
         if self._hands is not None or self._use_fallback:
+            return
+        if self._load_failed:
             return
         if self.backend == "simple":
             self._use_fallback = True
@@ -48,14 +51,9 @@ class HandLandmarkService:
             try:
                 mp = import_mediapipe()
             except ImportError:
-                self._use_fallback = True
-                self._fallback.start()
-                self.available = self._fallback.available
-                self.diagnostic = (
-                    "MediaPipe is not installed; using simple OpenCV hand detector."
-                    if self.available
-                    else self._fallback.diagnostic
-                )
+                self._load_failed = True
+                self.available = False
+                self.diagnostic = "MediaPipe is not installed; hand landmarks are unavailable."
                 return
             self._mp = mp
         if self._cv2 is None:
@@ -66,13 +64,19 @@ class HandLandmarkService:
                 return
             self._cv2 = cv2
 
-        self._hands = self._mp.solutions.hands.Hands(
-            static_image_mode=False,
-            model_complexity=0,
-            max_num_hands=self.max_hands,
-            min_detection_confidence=self.min_confidence,
-            min_tracking_confidence=self.min_confidence,
-        )
+        try:
+            self._hands = self._mp.solutions.hands.Hands(
+                static_image_mode=False,
+                model_complexity=0,
+                max_num_hands=self.max_hands,
+                min_detection_confidence=self.min_confidence,
+                min_tracking_confidence=self.min_confidence,
+            )
+        except (AttributeError, TypeError, ValueError, RuntimeError) as exc:
+            self._load_failed = True
+            self.available = False
+            self.diagnostic = f"MediaPipe Hands failed to start: {exc}"
+            return
         self.available = True
         self.diagnostic = f"Hand landmark detector tracking up to {self.max_hands} hands."
 
@@ -82,6 +86,7 @@ class HandLandmarkService:
             self._hands = None
         self._fallback.stop()
         self._use_fallback = False
+        self._load_failed = False
         self.available = False
 
     def detect(self, frame_bgr: Any) -> list[dict[str, Any]]:

@@ -12,19 +12,10 @@ def _pygame() -> Any:
     return pygame
 
 
-HAND_CONNECTIONS = (
-    (0, 1), (1, 2), (2, 3), (3, 4),
-    (0, 5), (5, 6), (6, 7), (7, 8),
-    (0, 9), (9, 10), (10, 11), (11, 12),
-    (0, 13), (13, 14), (14, 15), (15, 16),
-    (0, 17), (17, 18), (18, 19), (19, 20),
-    (5, 9), (9, 13), (13, 17),
-)
-
-
 class HandOverlayRenderer:
     def __init__(self) -> None:
         self.fonts: FontSet | None = None
+        self._trails: dict[str, list[tuple[tuple[int, int], int]]] = {}
 
     def render(
         self,
@@ -38,40 +29,40 @@ class HandOverlayRenderer:
     ) -> None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
-        green = theme.ACCENT
         dim_green = (43, 142, 73)
+        now_ms = pygame.time.get_ticks()
 
         divider_x = rect.left + int(rect.width * split_x)
         pygame.draw.line(surface, theme.WARNING, (divider_x, rect.top), (divider_x, rect.bottom), 3)
 
+        active_keys: set[str] = set()
         for hand in hands:
             if str(hand.get("source", "")).startswith("simple_"):
-                self._render_coarse_hand(pygame, surface, rect, hand, point_mapper=point_mapper)
                 continue
-            points = hand.get("landmarks", [])
-            if not isinstance(points, list):
-                continue
-            screen_points = [
-                self._to_screen(rect, point, zone=str(hand.get("zone", "")), point_mapper=point_mapper)
-                for point in points
-                if isinstance(point, Mapping)
-            ]
-            screen_points = [point for point in screen_points if point is not None]
-            for start, end in HAND_CONNECTIONS:
-                if start < len(screen_points) and end < len(screen_points):
-                    pygame.draw.line(surface, green, screen_points[start], screen_points[end], 2)
-            for point in screen_points:
-                pygame.draw.circle(surface, green, point, 4)
-
             palm = hand.get("palm_center")
-            if isinstance(palm, Mapping):
-                center = self._to_screen(rect, palm, zone=str(hand.get("zone", "")), point_mapper=point_mapper)
-                if center is None:
-                    continue
-                pygame.draw.circle(surface, theme.WARNING, center, 8, 2)
-                zone = str(hand.get("zone", "")).upper()
-                if zone:
-                    draw_text(surface, zone, self.fonts.small, green, (center[0] + 10, center[1] - 10))
+            if not isinstance(palm, Mapping):
+                continue
+            center = self._to_screen(rect, palm, zone=str(hand.get("zone", "")), point_mapper=point_mapper)
+            if center is None:
+                continue
+            key = self._trail_key(hand)
+            active_keys.add(key)
+            trail = self._trails.setdefault(key, [])
+            if not trail or _distance_sq(trail[-1][0], center) >= 9:
+                trail.append((center, now_ms))
+            self._trails[key] = [(point, at_ms) for point, at_ms in trail if now_ms - at_ms <= 520][-18:]
+
+        for key in list(self._trails):
+            if key not in active_keys:
+                self._trails[key] = [(point, at_ms) for point, at_ms in self._trails[key] if now_ms - at_ms <= 260]
+                if not self._trails[key]:
+                    del self._trails[key]
+
+        glow = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+        for key, trail in self._trails.items():
+            color = self._trail_color(key)
+            self._draw_trail(pygame, glow, trail, color, now_ms)
+        surface.blit(glow, (0, 0))
 
         if stale:
             pygame.draw.rect(surface, (60, 32, 36), rect, 4)
@@ -97,36 +88,47 @@ class HandOverlayRenderer:
             rect.top + int(float(point["y"]) * rect.height),
         )
 
-    def _render_coarse_hand(self, pygame: Any, surface: Any, rect: Any, hand: Mapping[str, Any], *, point_mapper: Any | None) -> None:
-        palm = hand.get("palm_center")
-        if not isinstance(palm, Mapping):
-            return
-        center = self._to_screen(rect, palm, zone=str(hand.get("zone", "")), point_mapper=point_mapper)
-        if center is None:
-            return
+    def _trail_key(self, hand: Mapping[str, Any]) -> str:
+        hand_id = str(hand.get("hand_id", "hand"))
+        zone = str(hand.get("zone", ""))
+        return f"{zone}:{hand_id}"
 
-        bbox = hand.get("bbox")
-        if isinstance(bbox, Mapping):
-            top_left = self._to_screen(
-                rect,
-                {"x": float(bbox["x"]), "y": float(bbox["y"])},
-                zone=str(hand.get("zone", "")),
-                point_mapper=point_mapper,
-            )
-            bottom_right = self._to_screen(
-                rect,
-                {
-                    "x": float(bbox["x"]) + float(bbox["width"]),
-                    "y": float(bbox["y"]) + float(bbox["height"]),
-                },
-                zone=str(hand.get("zone", "")),
-                point_mapper=point_mapper,
-            )
-            if top_left is not None and bottom_right is not None:
-                box = pygame.Rect(top_left, (bottom_right[0] - top_left[0], bottom_right[1] - top_left[1]))
-                pygame.draw.rect(surface, theme.ACCENT, box, 2)
+    def _trail_color(self, key: str) -> tuple[int, int, int]:
+        return (0, 255, 220) if key.startswith("p1:") else (255, 222, 52)
 
-        pygame.draw.circle(surface, theme.WARNING, center, 7, 2)
-        zone = str(hand.get("zone", "")).upper()
-        if zone and self.fonts is not None:
-            draw_text(surface, zone, self.fonts.small, theme.ACCENT, (center[0] + 10, center[1] - 10))
+    def _draw_trail(
+        self,
+        pygame: Any,
+        surface: Any,
+        trail: list[tuple[tuple[int, int], int]],
+        color: tuple[int, int, int],
+        now_ms: int,
+    ) -> None:
+        if not trail:
+            return
+        for index, (point, at_ms) in enumerate(trail):
+            age = max(0, now_ms - at_ms)
+            fade = max(0.0, 1.0 - age / 520.0)
+            size = int(7 + 17 * fade + index * 0.25)
+            alpha = int(28 + 150 * fade)
+            pygame.draw.circle(surface, (*color, max(0, min(255, alpha // 3))), point, size + 12)
+            pygame.draw.circle(surface, (*color, max(0, min(255, alpha))), point, size)
+
+        if len(trail) >= 2:
+            for index in range(1, len(trail)):
+                start, start_ms = trail[index - 1]
+                end, end_ms = trail[index]
+                age = max(0, now_ms - max(start_ms, end_ms))
+                fade = max(0.0, 1.0 - age / 520.0)
+                width = max(3, int(12 * fade))
+                alpha = int(170 * fade)
+                pygame.draw.line(surface, (*color, max(0, min(255, alpha))), start, end, width)
+
+        current = trail[-1][0]
+        pygame.draw.circle(surface, (*color, 72), current, 34)
+        pygame.draw.circle(surface, (*color, 150), current, 24)
+        pygame.draw.circle(surface, (*color, 255), current, 15)
+        pygame.draw.circle(surface, (255, 255, 245, 245), current, 6)
+
+def _distance_sq(a: tuple[int, int], b: tuple[int, int]) -> int:
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
