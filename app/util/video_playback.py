@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import tempfile
 import threading
 from collections.abc import Callable
@@ -11,6 +12,14 @@ from urllib.request import urlopen
 LOGGER = logging.getLogger(__name__)
 
 DownloadCallback = Callable[[Path | None], None]
+
+
+def pick_random_mp4(media_dir: Path) -> Path | None:
+    """Return a random ``.mp4`` from ``media_dir``, or ``None`` if none exist."""
+    candidates = sorted(media_dir.glob("*.mp4"))
+    if not candidates:
+        return None
+    return random.choice(candidates)
 
 
 def download_to_tempfile(url: str, *, timeout: float = 30.0) -> Path:

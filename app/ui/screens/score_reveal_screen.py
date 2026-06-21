@@ -22,7 +22,7 @@ from app.ui.render_utils import (
     scaled_asset_image,
 )
 from app.util.images import encode_bgr_jpeg
-from app.util.video_playback import LoopingVideoPlayer, download_in_background
+from app.util.video_playback import LoopingVideoPlayer, download_in_background, pick_random_mp4
 
 from app.ui.sparkle_layer import SparkleLayer
 
@@ -46,8 +46,13 @@ class ScoreRevealScreen:
         self.replay_phase = "idle"  # idle | generating | downloading | ready | failed
         self.replay_job_id: str | None = None
         self.replay_player: LoopingVideoPlayer | None = None
+        self.replay_backup_path: Path | None = None
         self.replay_error = ""
         self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
+        self.recap_url = ""
+        self.social_prompt_started = False
+        self.social_status_text = ""
+        self._social_queue: "queue.Queue[tuple[str, dict[str, Any]]]" = queue.Queue()
         self.sparkles = None
 
     def on_enter(self, **_: Any) -> None:
@@ -64,6 +69,7 @@ class ScoreRevealScreen:
         self._close_replay()
         self.replay_phase = "idle"
         self.replay_job_id = None
+        self.replay_backup_path = None
         self.replay_error = ""
         self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
         self.recap_url = ""
@@ -132,9 +138,11 @@ class ScoreRevealScreen:
                 self.replay_phase = "downloading"
                 download_in_background(url, lambda path, u=url: self._replay_queue.put((path, u)))
             else:
+                self._close_replay()
                 self.replay_phase = "failed"
                 self.replay_error = "no video URL in result"
         elif status in {"failed", "timed_out"}:
+            self._close_replay()
             self.replay_phase = "failed"
             self.replay_error = str(metadata.get("error") or status)
             LOGGER.warning("Recap: job %s (%s)", status, self.replay_error)
@@ -173,7 +181,28 @@ class ScoreRevealScreen:
         self.replay_job_id = service.submit(f"{game_type}.recap_video", payload)
         self.replay_phase = "generating"
         self.replay_error = ""
+        self._start_backup_replay()
         LOGGER.info("Recap: submitted job %s for %s", self.replay_job_id, game_type)
+
+    def _start_backup_replay(self) -> bool:
+        config = getattr(self.manager, "config", None)
+        if config is None:
+            return False
+        media_dir = getattr(config, "media_dir", None)
+        if media_dir is None:
+            return False
+        backup_path = pick_random_mp4(Path(media_dir))
+        if backup_path is None:
+            return False
+        player = LoopingVideoPlayer(backup_path)
+        if not player.is_ready:
+            player.close()
+            return False
+        self._close_replay()
+        self.replay_player = player
+        self.replay_backup_path = backup_path
+        LOGGER.info("Recap: playing backup clip %s while generating", backup_path)
+        return True
 
     def _drain_replay_queue(self) -> None:
         while True:
@@ -341,6 +370,7 @@ class ScoreRevealScreen:
             except Exception:  # noqa: BLE001
                 pass
             self.replay_player = None
+        self.replay_backup_path = None
 
     # ------------------------------------------------------------------
     # Rendering
@@ -377,7 +407,9 @@ class ScoreRevealScreen:
         else:
             self._render_score_rows(pygame, surface, rows, fonts, width)
 
-        if self.replay_phase == "ready":
+        if self.replay_phase == "ready" or (
+            self.replay_phase in {"generating", "downloading"} and self.replay_player is not None
+        ):
             self._render_replay_video(pygame, surface, fonts, width, height)
         elif self.replay_phase in {"generating", "downloading"}:
             self._render_replay_generating(pygame, surface, fonts, width, height)
