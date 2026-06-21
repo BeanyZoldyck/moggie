@@ -7,10 +7,11 @@ from typing import Mapping
 from app.cv.expression_features import classify_expression
 
 
-SUPPORTED_EXPRESSIONS = ("smile", "surprised", "eyes_closed", "wink", "neutral")
+SUPPORTED_EXPRESSIONS = ("smile", "surprised", "tongue_out", "eyes_closed", "wink", "neutral")
 EXPRESSION_LABELS = {
     "smile": "SMILE",
     "surprised": "SURPRISE",
+    "tongue_out": "TONGUE OUT",
     "eyes_closed": "EYES CLOSED",
     "wink": "WINK",
     "neutral": "DEADPAN",
@@ -18,6 +19,7 @@ EXPRESSION_LABELS = {
 EXPRESSION_GLYPHS = {
     "smile": ":)",
     "surprised": ":O",
+    "tongue_out": ":P",
     "eyes_closed": "-_-",
     "wink": ";)",
     "neutral": ":|",

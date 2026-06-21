@@ -150,7 +150,7 @@ class EmojiFaceMatchScreen:
             if self.manager.camera_service is not None
             else "Camera service is not configured."
         )
-        self.preview_renderer.render(
+        preview_rect = self.preview_renderer.render(
             surface,
             camera_rect,
             frame_bgr=frame,
@@ -159,7 +159,7 @@ class EmojiFaceMatchScreen:
         )
         self.face_renderer.render(
             surface,
-            camera_rect.inflate(-6, -6),
+            preview_rect or camera_rect.inflate(-6, -6),
             self._faces(),
             split_x=self.manager.config.zone_split_x,
         )
@@ -197,7 +197,7 @@ class EmojiFaceMatchScreen:
         pygame.draw.line(surface, theme.DIM_BORDER, (track.left, track.centery), (track.right, track.centery), 2)
         target_x = track.left + int(track.width * self.target_progress)
         pygame.draw.line(surface, (255, 96, 116), (target_x, track.top), (target_x, track.bottom), 4)
-        draw_text(surface, "MATCH", self.fonts.small, (255, 96, 116), (target_x, track.top - 2), anchor="bottom")
+        draw_text(surface, "MATCH", self.fonts.small, (255, 96, 116), (target_x, track.top - 2), anchor="midbottom")
 
         for target in lane.targets:
             progress = max(0.0, min(1.25, (now_ms - target.spawn_ms) / self.travel_ms))

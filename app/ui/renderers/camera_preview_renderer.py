@@ -24,7 +24,7 @@ class CameraPreviewRenderer:
         frame_bgr: Any | None,
         diagnostic: str,
         show_divider: bool = True,
-    ) -> None:
+    ) -> Any | None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
 
@@ -34,7 +34,7 @@ class CameraPreviewRenderer:
 
         if frame_bgr is None:
             self._render_diagnostic(pygame, surface, inner, diagnostic)
-            return
+            return None
 
         preview = self._surface_from_bgr(pygame, frame_bgr)
         scaled_size = scale_to_fit(preview.get_size(), inner.size)
@@ -47,6 +47,7 @@ class CameraPreviewRenderer:
             pygame.draw.line(surface, theme.ACCENT, (divider_x, target.top), (divider_x, target.bottom), 3)
             self._draw_zone_label(surface, "P1", (target.left + 14, target.top + 12), theme.ACCENT)
             self._draw_zone_label(surface, "P2", (target.right - 14, target.top + 12), theme.WARNING, anchor="topright")
+        return target
 
     def _render_diagnostic(self, pygame: Any, surface: Any, rect: Any, diagnostic: str) -> None:
         assert self.fonts is not None
