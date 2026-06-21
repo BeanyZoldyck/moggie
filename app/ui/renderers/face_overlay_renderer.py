@@ -78,7 +78,7 @@ class FaceOverlayRenderer:
                 pygame.draw.line(surface, geometry_color, points[start], points[end], 2)
         for point in points.values():
             pygame.draw.circle(surface, shadow, point, 5)
-            pygame.draw.circle(surface, geometry_green, point, 3)
+            pygame.draw.circle(surface, geometry_color, point, 3)
 
     def _bbox_to_screen(
         self,
