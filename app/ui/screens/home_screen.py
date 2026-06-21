@@ -174,14 +174,8 @@ class HomeScreen:
 
     def _activate_action(self) -> None:
         self.manager.state.selected_game_type = GAMES[self.game_index].game_type
-        if self.action_index == 0:
-            selected_game = GAMES[self.game_index].game_type
 
-            if selected_game == "mog_mirror":
-                self.manager.go_to("mog_mirror")
-            elif selected_game == "sixty_seven":
-                self.manager.go_to("sixty_seven")
-            elif selected_game == "emoji_face_match":
-                self.manager.go_to("emoji_face_match")
+        if self.action_index == 0:
+            self.manager.go_to("player_setup")
         else:
             self.manager.go_to("leaderboard")
