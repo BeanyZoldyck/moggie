@@ -36,8 +36,27 @@ class MogMirrorTests(unittest.TestCase):
         second = score_aura(session_id="session-1", display_name="Mina", zone="p1", face=face)
 
         self.assertEqual(first, second)
-        self.assertGreaterEqual(first, 65)
-        self.assertLessEqual(first, 99)
+        self.assertGreaterEqual(first, 45)
+        self.assertLessEqual(first, 90)
+
+    def test_aura_score_uses_sensitive_face_geometry(self) -> None:
+        symmetrical = _mog_face()
+        asymmetrical = _mog_face(offset=0.08)
+
+        balanced_score = score_aura(session_id="session-geometry", display_name="Mina", zone="p1", face=symmetrical)
+        asymmetrical_score = score_aura(session_id="session-geometry", display_name="Mina", zone="p1", face=asymmetrical)
+
+        self.assertGreater(balanced_score, asymmetrical_score)
+
+    def test_live_aura_score_fluctuates_wildly_by_sample_time(self) -> None:
+        face = _mog_face()
+
+        samples = [
+            score_aura(session_id="session-live", display_name="Mina", zone="p1", face=face, sample_ms=sample_ms)
+            for sample_ms in range(0, 5_000, 500)
+        ]
+
+        self.assertGreaterEqual(max(samples) - min(samples), 20)
 
     def test_missing_face_uses_mystery_label(self) -> None:
         self.assertEqual(label_for_aura(72, winner=False, face_detected=False), "MYSTERY AURA")
@@ -79,6 +98,57 @@ class MogMirrorTests(unittest.TestCase):
         self.assertEqual(job_ids, ["job-1"])
         self.assertEqual([kind for kind, _ in service.submitted], ["mog_mirror.caricature"])
         self.assertTrue(all(payload["has_crop"] for _, payload in service.submitted))
+
+    def test_live_score_window_runs_for_ten_seconds(self) -> None:
+        screen = MogMirrorScreen(SimpleNamespace())
+
+        self.assertEqual(screen.live_score_duration_ms, 10_000)
+        self.assertEqual(screen.countdown_ms, 10_000)
+
+    def test_live_scores_refresh_every_half_second(self) -> None:
+        screen = MogMirrorScreen(SimpleNamespace())
+        screen.session_id = "session-1"
+        screen.manual_override = False
+        screen.lanes = [MirrorLane(name="Mina", zone="p1")]
+
+        screen._update_live_scores(1_000)
+        first_score = screen.lanes[0].live_score
+        first_update = screen.lanes[0].live_score_updated_at_ms
+
+        screen.lanes[0].face = {
+            "confidence": 1.0,
+            "center": {"x": 0.25, "y": 0.35},
+            "bbox": {"x": 0.18, "y": 0.18, "width": 0.2, "height": 0.3},
+        }
+        screen._update_live_scores(1_499)
+
+        self.assertEqual(screen.lanes[0].live_score, first_score)
+        self.assertEqual(screen.lanes[0].live_score_updated_at_ms, first_update)
+
+        screen._update_live_scores(1_500)
+
+        self.assertNotEqual(screen.lanes[0].live_score, first_score)
+        self.assertEqual(screen.lanes[0].live_score_updated_at_ms, 1_500)
+
+
+def _mog_face(offset: float = 0.0) -> dict[str, object]:
+    return {
+        "confidence": 1.0,
+        "center": {"x": 0.25, "y": 0.38},
+        "bbox": {"x": 0.12, "y": 0.18, "width": 0.26, "height": 0.36},
+        "landmarks": {
+            "left_eye_outer": {"x": 0.17, "y": 0.30},
+            "left_eye_inner": {"x": 0.22, "y": 0.30},
+            "right_eye_inner": {"x": 0.28 + offset, "y": 0.30},
+            "right_eye_outer": {"x": 0.33 + offset, "y": 0.30},
+            "mouth_left": {"x": 0.19, "y": 0.49},
+            "mouth_right": {"x": 0.31 + offset, "y": 0.49},
+            "nose_tip": {"x": 0.25 + offset, "y": 0.39},
+            "chin": {"x": 0.25 + offset, "y": 0.61},
+            "left_cheek": {"x": 0.14, "y": 0.42},
+            "right_cheek": {"x": 0.36 + offset, "y": 0.42},
+        },
+    }
 
 
 @dataclass

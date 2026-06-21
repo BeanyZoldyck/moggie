@@ -10,6 +10,65 @@ class SixtySevenCounterTests(unittest.TestCase):
         self.assertEqual(counter.update(0.7), 0)
         self.assertEqual(counter.update(0.2), 1)
 
+    def test_counter_counts_slow_extension_return_cycle(self) -> None:
+        counter = SixtySevenCounter()
+
+        for distance in [0.20, 0.24, 0.29, 0.34, 0.39, 0.43, 0.47]:
+            counter.update(distance, now_ms=100)
+        counter.update(0.24, now_ms=700)
+
+        self.assertEqual(counter.reps, 1)
+
+    def test_counter_tolerates_missing_intermediate_frames(self) -> None:
+        counter = SixtySevenCounter()
+
+        counter.update(0.36, now_ms=100)
+        counter.update(0.29, now_ms=650)
+
+        self.assertEqual(counter.reps, 1)
+
+    def test_counter_counts_fast_vertical_hand_alternation(self) -> None:
+        counter = SixtySevenCounter(cooldown_ms=0)
+        left_high = [
+            {"confidence": 0.9, "palm_center": {"x": 0.20, "y": 0.28}},
+            {"confidence": 0.9, "palm_center": {"x": 0.28, "y": 0.68}},
+        ]
+        right_high = [
+            {"confidence": 0.9, "palm_center": {"x": 0.20, "y": 0.68}},
+            {"confidence": 0.9, "palm_center": {"x": 0.28, "y": 0.28}},
+        ]
+
+        counter.update_from_hands(left_high, now_ms=100, frame_timestamp_ms=100)
+        counter.update_from_hands(right_high, now_ms=180, frame_timestamp_ms=180)
+        counter.update_from_hands(left_high, now_ms=260, frame_timestamp_ms=260)
+
+        self.assertEqual(counter.reps, 2)
+
+    def test_counter_rejects_tiny_vertical_alternation_jitter(self) -> None:
+        counter = SixtySevenCounter(cooldown_ms=0)
+        almost_level = [
+            {"confidence": 0.9, "palm_center": {"x": 0.20, "y": 0.49}},
+            {"confidence": 0.9, "palm_center": {"x": 0.28, "y": 0.53}},
+        ]
+        almost_level_flipped = [
+            {"confidence": 0.9, "palm_center": {"x": 0.20, "y": 0.53}},
+            {"confidence": 0.9, "palm_center": {"x": 0.28, "y": 0.49}},
+        ]
+
+        counter.update_from_hands(almost_level, now_ms=100, frame_timestamp_ms=100)
+        counter.update_from_hands(almost_level_flipped, now_ms=180, frame_timestamp_ms=180)
+        counter.update_from_hands(almost_level, now_ms=260, frame_timestamp_ms=260)
+
+        self.assertEqual(counter.reps, 0)
+
+    def test_counter_rejects_tiny_threshold_jitter(self) -> None:
+        counter = SixtySevenCounter(cooldown_ms=0)
+
+        for distance in [0.35, 0.32, 0.34, 0.31, 0.35, 0.32]:
+            counter.update(distance, now_ms=100)
+
+        self.assertEqual(counter.reps, 0)
+
     def test_counter_rejects_small_jitter(self) -> None:
         counter = SixtySevenCounter(min_delta=0.08)
 
@@ -60,6 +119,23 @@ class SixtySevenCounterTests(unittest.TestCase):
         counter.update_from_hands(close, now_ms=100, frame_timestamp_ms=100)
         counter.update_from_hands(far, now_ms=200, frame_timestamp_ms=200)
         counter.update_from_hands(close, now_ms=300, frame_timestamp_ms=300)
+
+        self.assertEqual(counter.reps, 1)
+
+    def test_counter_uses_farthest_detected_hand_pair(self) -> None:
+        counter = SixtySevenCounter(cooldown_ms=0)
+        far_with_extra_hand = [
+            {"confidence": 0.9, "palm_center": {"x": 0.10, "y": 0.5}},
+            {"confidence": 0.9, "palm_center": {"x": 0.18, "y": 0.5}},
+            {"confidence": 0.9, "palm_center": {"x": 0.46, "y": 0.5}},
+        ]
+        close = [
+            {"confidence": 0.9, "palm_center": {"x": 0.20, "y": 0.5}},
+            {"confidence": 0.9, "palm_center": {"x": 0.27, "y": 0.5}},
+        ]
+
+        counter.update_from_hands(far_with_extra_hand, now_ms=100, frame_timestamp_ms=100)
+        counter.update_from_hands(close, now_ms=200, frame_timestamp_ms=200)
 
         self.assertEqual(counter.reps, 1)
 
