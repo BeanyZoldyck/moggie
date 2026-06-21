@@ -37,8 +37,6 @@ class HandOverlayRenderer:
 
         active_keys: set[str] = set()
         for hand in hands:
-            if str(hand.get("source", "")).startswith("simple_"):
-                continue
             palm = hand.get("palm_center")
             if not isinstance(palm, Mapping):
                 continue

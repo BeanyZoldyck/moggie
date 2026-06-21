@@ -29,7 +29,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.qnx_camera_unit, 1)
         self.assertEqual(config.qnx_camera_decimate, 3)
         self.assertTrue(config.cv_enable_face_detection)
-        self.assertEqual(config.hand_tracking_backend, "mediapipe")
+        self.assertEqual(config.hand_tracking_backend, "auto")
         self.assertEqual(config.face_tracking_backend, "mediapipe")
         self.assertTrue(config.idle_attract_enabled)
         self.assertEqual(config.idle_timeout_seconds, 90)

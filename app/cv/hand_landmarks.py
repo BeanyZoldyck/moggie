@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.core.app_event import normalized_point
 from app.cv.mediapipe_compat import import_mediapipe
 from app.cv.simple_hand_detection import SimpleHandDetectionService
 from app.cv.zone_assignment import assign_hand_detections
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class HandLandmarkService:
@@ -22,7 +26,7 @@ class HandLandmarkService:
         self.max_hands = max(1, min(4, max_hands))
         self.min_confidence = max(0.0, min(1.0, min_confidence))
         self.split_x = max(0.0, min(1.0, split_x))
-        self.backend = backend if backend in {"mediapipe", "simple"} else "mediapipe"
+        self.backend = backend if backend in {"auto", "mediapipe", "simple"} else "auto"
         self._mp = mediapipe_module
         self._cv2 = cv2_module
         self._hands: Any | None = None
@@ -42,18 +46,19 @@ class HandLandmarkService:
         if self._load_failed:
             return
         if self.backend == "simple":
-            self._use_fallback = True
-            self._fallback.start()
-            self.available = self._fallback.available
-            self.diagnostic = self._fallback.diagnostic
+            self._start_fallback()
             return
         if self._mp is None:
             try:
                 mp = import_mediapipe()
             except ImportError:
+                if self.backend == "auto":
+                    self._start_fallback(prefix="MediaPipe is not installed")
+                    return
                 self._load_failed = True
                 self.available = False
                 self.diagnostic = "MediaPipe is not installed; hand landmarks are unavailable."
+                LOGGER.warning(self.diagnostic)
                 return
             self._mp = mp
         if self._cv2 is None:
@@ -73,12 +78,25 @@ class HandLandmarkService:
                 min_tracking_confidence=self.min_confidence,
             )
         except (AttributeError, TypeError, ValueError, RuntimeError) as exc:
+            if self.backend == "auto":
+                self._start_fallback(prefix=f"MediaPipe Hands failed to start: {exc}")
+                return
             self._load_failed = True
             self.available = False
             self.diagnostic = f"MediaPipe Hands failed to start: {exc}"
+            LOGGER.warning(self.diagnostic)
             return
         self.available = True
         self.diagnostic = f"Hand landmark detector tracking up to {self.max_hands} hands."
+        LOGGER.info(self.diagnostic)
+
+    def _start_fallback(self, *, prefix: str | None = None) -> None:
+        self._use_fallback = True
+        self._fallback.start()
+        self.available = self._fallback.available
+        self.diagnostic = self._fallback.diagnostic if prefix is None else f"{prefix}; {self._fallback.diagnostic}"
+        log = LOGGER.info if self.available else LOGGER.warning
+        log(self.diagnostic)
 
     def stop(self) -> None:
         if self._hands is not None:

@@ -100,11 +100,7 @@ class SixtySevenScreen:
         hands = []
         frame_timestamp_ms = None
         if state is not None:
-            hands = [
-                hand
-                for hand in state.hand_landmarks.get("hands", [])
-                if not str(hand.get("source", "")).startswith("simple_")
-            ]
+            hands = list(state.hand_landmarks.get("hands", []))
             frame_timestamp_ms = state.timestamp_ms
 
         event_now_ms = current_time_ms()
@@ -158,11 +154,7 @@ class SixtySevenScreen:
             split_pane=True,
         )
         state = self.manager.cv_service.latest_state() if self.manager.cv_service is not None else None
-        hands = [
-            hand
-            for hand in state.hand_landmarks.get("hands", [])
-            if not str(hand.get("source", "")).startswith("simple_")
-        ] if state is not None else []
+        hands = list(state.hand_landmarks.get("hands", [])) if state is not None else []
         stale = any(lane.counter.stale for lane in self.lanes)
         effect_rect = camera_rect.inflate(-6, -6)
         now_ms = pygame.time.get_ticks()

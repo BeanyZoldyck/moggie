@@ -17,7 +17,7 @@ GAME_MODES = {"versus", "solo", "alternating"}
 STORAGE_MODES = {"none", "local", "usb"}
 PIKA_PROVIDERS = {"mcp", "fal"}
 CAMERA_BACKENDS = {"opencv", "qnx"}
-HAND_TRACKING_BACKENDS = {"mediapipe", "simple"}
+HAND_TRACKING_BACKENDS = {"auto", "mediapipe", "simple"}
 FACE_TRACKING_BACKENDS = {"mediapipe", "cascade"}
 
 
@@ -135,7 +135,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         cv_height=_int(env, "MOGGIE_CV_HEIGHT", 240, 60, 1080),
         cv_fps=_int(env, "MOGGIE_CV_FPS", 15, 1, 60),
         cv_enable_face_detection=_bool(env, "MOGGIE_CV_ENABLE_FACE_DETECTION", True),
-        hand_tracking_backend=_enum(env, "MOGGIE_HAND_TRACKING_BACKEND", "mediapipe", HAND_TRACKING_BACKENDS),
+        hand_tracking_backend=_enum(env, "MOGGIE_HAND_TRACKING_BACKEND", "auto", HAND_TRACKING_BACKENDS),
         face_tracking_backend=_enum(env, "MOGGIE_FACE_TRACKING_BACKEND", "mediapipe", FACE_TRACKING_BACKENDS),
         idle_attract_enabled=_bool(env, "MOGGIE_IDLE_ATTRACT_ENABLED", True),
         idle_timeout_seconds=_int(env, "MOGGIE_IDLE_TIMEOUT_SECONDS", 90, 5, 3600),
