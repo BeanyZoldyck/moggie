@@ -1,0 +1,104 @@
+flowchart TB
+  subgraph Device["Raspberry Pi / QNX HDMI Kiosk"]
+    Systemd["systemd moggie.service / scripts"]
+    Main["app.main\nload config + init SQLite"]
+    App["MoggieApp\nPygame/SDL2 frame loop"]
+    Screens["ScreenManager\nHome, Setup, Games, Score Reveal,\nLeaderboard, Idle Attract"]
+    EventBus["EventBus\nCV + AI status events"]
+
+    Systemd --> Main --> App --> Screens
+    App <--> EventBus
+    EventBus --> Screens
+
+    subgraph Games["Active Games"]
+      Mirror["Mog Mirror"]
+      SixtySeven["67 Challenge"]
+      Emoji["Emoji Face Match"]
+    end
+
+    Screens --> Games
+  end
+
+  subgraph Capture["Camera + CV"]
+    QNXOS["QNX OS / Pi Camera Module 3"]
+    Grabber["native/moggi_camgrab\nQNX CamAPI NV12 stream"]
+    Camera["CameraService\nQNX backend active"]
+    CV["CVService"]
+    Hands["HandLandmarkService\nMediaPipe/simple"]
+    Faces["FaceDetectionService\nMediaPipe/cascade"]
+    Zones["Zone assignment\nleft/right player lanes"]
+
+    QNXOS --> Grabber --> Camera --> CV
+    CV --> Hands --> Zones
+    CV --> Faces --> Zones
+    Zones --> EventBus
+    Camera --> Screens
+  end
+
+  subgraph Persistence["Persistence + Cache"]
+    Leaderboard["LeaderboardService"]
+    SQLite[("SQLite\nplayers, sessions, scores,\nmedia_assets")]
+    Redis[("Redis\nleaderboard cache/index")]
+    Storage["StorageService"]
+    LocalMedia[("media/ local files")]
+    S3[("S3 video storage\noptional active path")]
+
+    Games --> Leaderboard
+    Leaderboard --> SQLite
+    Leaderboard <--> Redis
+    Storage --> LocalMedia
+    Storage --> S3
+    Screens --> Leaderboard
+  end
+
+  subgraph AI["Cloud AI + Generation"]
+    AIJobs["AIJobService\nbackground worker queue"]
+    Midjourney["Midjourney MCP\nimage/caricature generation"]
+    Pika["Pika MCP\nimage-to-video / recap videos"]
+    FalPika["Fal Pika provider\nalternate Pika route"]
+    TextMock["Text / vision clients\nlabels + expression validation"]
+
+    Screens --> AIJobs
+    Mirror --> AIJobs
+    AIJobs --> Midjourney
+    AIJobs --> Pika
+    AIJobs --> FalPika
+    AIJobs --> TextMock
+    AIJobs --> EventBus
+  end
+
+  subgraph VoiceSocial["Voice + Social"]
+    Voice["VoiceService\nDeepgram TTS"]
+    DeepgramTTS["Deepgram Speak API"]
+    VoiceAgent["VoiceAgentService\nDeepgram websocket agent"]
+    DeepgramAgent["Deepgram Agent API"]
+    Social["SocialPostService"]
+    X["X API"]
+
+    Screens --> Voice
+    Voice --> DeepgramTTS
+    Screens --> VoiceAgent
+    VoiceAgent <--> DeepgramAgent
+    VoiceAgent --> Social --> X
+    Social --> Leaderboard
+  end
+
+  subgraph RecapFlow["Generated Recap Flow"]
+    ScoreReveal["ScoreRevealScreen"]
+    Download["Download generated video URL"]
+    RecordAsset["record_media_asset()"]
+
+    ScoreReveal --> AIJobs
+    Pika --> Download
+    Download --> ScoreReveal
+    ScoreReveal --> Storage
+    ScoreReveal --> RecordAsset --> SQLite
+    ScoreReveal --> VoiceAgent
+  end
+
+  App --> Camera
+  App --> CV
+  App --> AIJobs
+  App --> Voice
+  App --> VoiceAgent
+  Screens --> ScoreReveal
