@@ -11,6 +11,8 @@ from app.services.cv_service import CVService
 from app.services.ai_job_service import AIJobService
 from app.services.leaderboard_service import LeaderboardService
 from app.services.storage_service import StorageService
+from app.services.voice_service import VoiceService
+from app.games.voicelines import pick_voiceline
 
 
 class Screen(Protocol):
@@ -53,6 +55,7 @@ class ScreenManager:
         cv_service: CVService | None = None,
         ai_job_service: AIJobService | None = None,
         storage_service: StorageService | None = None,
+        voice_service: VoiceService | None = None,
         initial_screen: str = "home",
     ) -> None:
         from app.ui.screens.home_screen import HomeScreen
@@ -70,6 +73,7 @@ class ScreenManager:
         self.cv_service = cv_service
         self.ai_job_service = ai_job_service
         self.storage_service = storage_service
+        self.voice_service = voice_service
         self.state = ScreenState()
         self.should_quit = False
         self.last_input_ms = 0
@@ -127,6 +131,13 @@ class ScreenManager:
     def wake_to_home(self) -> None:
         self.last_input_ms = self._event_ticks()
         self.go_to("home")
+
+    def speak_voiceline(self, game_type: str, moment: str) -> None:
+        if self.voice_service is None:
+            return
+        line = pick_voiceline(game_type, moment)
+        if line:
+            self.voice_service.speak(line)
 
     def _event_ticks(self) -> int:
         try:

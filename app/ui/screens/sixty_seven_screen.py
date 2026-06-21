@@ -66,6 +66,7 @@ class SixtySevenScreen:
         self.session_id = session.id
         self.started_at_ms = None
         self.finished = False
+        self.manager.speak_voiceline("sixty_seven", "intro")
 
     def handle_event(self, event: Any) -> None:
         pygame = _pygame()
@@ -323,6 +324,7 @@ class SixtySevenScreen:
         )
         self.manager.state.reveal_rows = rows
         self.manager.state.last_session_id = self.session_id
+        self.manager.speak_voiceline("sixty_seven", "end")
         self.manager.go_to("score_reveal")
 
     def _label_for_score(self, reps: int, *, winner: bool) -> str:

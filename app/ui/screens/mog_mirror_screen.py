@@ -69,6 +69,7 @@ class MogMirrorScreen:
         self.message = "CENTER BOTH FACES IN THEIR LANES"
         self.manual_override = False
         self._entered_at_ms = None
+        self.manager.speak_voiceline("mog_mirror", "intro")
 
     def handle_event(self, event: Any) -> None:
         pygame = _pygame()
@@ -648,6 +649,7 @@ class MogMirrorScreen:
         )
         self.manager.state.reveal_rows = rows
         self.manager.state.last_session_id = self.session_id
+        self.manager.speak_voiceline("mog_mirror", "end")
         self.manager.go_to("score_reveal")
 
     def _average_live_score(self, lane: MirrorLane) -> int | None:

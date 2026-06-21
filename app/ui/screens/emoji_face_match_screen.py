@@ -92,6 +92,7 @@ class EmojiFaceMatchScreen:
         self.finished = False
         self.message = self._ready_message()
         self.manual_override = False
+        self.manager.speak_voiceline("emoji_face_match", "intro")
 
     def handle_event(self, event: Any) -> None:
         pygame = _pygame()
@@ -457,4 +458,5 @@ class EmojiFaceMatchScreen:
         )
         self.manager.state.reveal_rows = rows
         self.manager.state.last_session_id = self.session_id
+        self.manager.speak_voiceline("emoji_face_match", "end")
         self.manager.go_to("score_reveal")

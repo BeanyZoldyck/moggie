@@ -99,6 +99,9 @@ class MoggieConfig:
     pika_model: str
     ai_timeout_seconds: int
     ai_poll_interval_seconds: int
+    enable_voice: bool
+    deepgram_api_key: str
+    deepgram_voice_model: str
 
     @property
     def display_size(self) -> tuple[int, int]:
@@ -196,6 +199,9 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         pika_model=_str(env, "MOGGIE_PIKA_MODEL", "fal-ai/pika/v2/turbo/image-to-video"),
         ai_timeout_seconds=_int(env, "MOGGIE_AI_TIMEOUT_SECONDS", 45, 1, 300),
         ai_poll_interval_seconds=_int(env, "MOGGIE_AI_POLL_INTERVAL_SECONDS", 2, 1, 30),
+        enable_voice=_bool(env, "MOGGIE_ENABLE_VOICE", True),
+        deepgram_api_key=_str(env, "DEEPGRAM_API_KEY", ""),
+        deepgram_voice_model=_str(env, "MOGGIE_DEEPGRAM_VOICE_MODEL", "aura-2-zeus-en"),
     )
 
 

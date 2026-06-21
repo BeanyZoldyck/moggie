@@ -11,6 +11,7 @@ from app.services.camera_service import CameraService
 from app.services.cv_service import CVService
 from app.services.leaderboard_service import LeaderboardService
 from app.services.storage_service import StorageService
+from app.services.voice_service import VoiceService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class MoggieApp:
             camera_service=self.camera_service,
         )
         self.ai_job_service = AIJobService.from_config(config, event_bus=self.event_bus)
+        self.voice_service = VoiceService.from_config(config)
         self.screen_manager = ScreenManager(
             config,
             self.leaderboard_service,
@@ -43,6 +45,7 @@ class MoggieApp:
             cv_service=self.cv_service,
             ai_job_service=self.ai_job_service,
             storage_service=self.storage_service,
+            voice_service=self.voice_service,
         )
         self.running = False
 
@@ -69,6 +72,7 @@ class MoggieApp:
             self.camera_service.start()
             self.cv_service.start()
             self.ai_job_service.start()
+            self.voice_service.start()
             while self.running and (max_frames == 0 or frame_count < max_frames):
                 dt_ms = clock.tick(self.target_fps)
                 self.camera_service.poll()
@@ -94,6 +98,7 @@ class MoggieApp:
                     self.running = False
                 frame_count += 1
         finally:
+            self.voice_service.stop()
             self.ai_job_service.stop()
             self.cv_service.stop()
             self.camera_service.stop()
