@@ -45,6 +45,9 @@ class HandOverlayRenderer:
         pygame.draw.line(surface, theme.WARNING, (divider_x, rect.top), (divider_x, rect.bottom), 3)
 
         for hand in hands:
+            if str(hand.get("source", "")).startswith("simple_"):
+                self._render_coarse_hand(pygame, surface, rect, hand, point_mapper=point_mapper)
+                continue
             points = hand.get("landmarks", [])
             if not isinstance(points, list):
                 continue
@@ -93,3 +96,37 @@ class HandOverlayRenderer:
             rect.left + int(float(point["x"]) * rect.width),
             rect.top + int(float(point["y"]) * rect.height),
         )
+
+    def _render_coarse_hand(self, pygame: Any, surface: Any, rect: Any, hand: Mapping[str, Any], *, point_mapper: Any | None) -> None:
+        palm = hand.get("palm_center")
+        if not isinstance(palm, Mapping):
+            return
+        center = self._to_screen(rect, palm, zone=str(hand.get("zone", "")), point_mapper=point_mapper)
+        if center is None:
+            return
+
+        bbox = hand.get("bbox")
+        if isinstance(bbox, Mapping):
+            top_left = self._to_screen(
+                rect,
+                {"x": float(bbox["x"]), "y": float(bbox["y"])},
+                zone=str(hand.get("zone", "")),
+                point_mapper=point_mapper,
+            )
+            bottom_right = self._to_screen(
+                rect,
+                {
+                    "x": float(bbox["x"]) + float(bbox["width"]),
+                    "y": float(bbox["y"]) + float(bbox["height"]),
+                },
+                zone=str(hand.get("zone", "")),
+                point_mapper=point_mapper,
+            )
+            if top_left is not None and bottom_right is not None:
+                box = pygame.Rect(top_left, (bottom_right[0] - top_left[0], bottom_right[1] - top_left[1]))
+                pygame.draw.rect(surface, theme.ACCENT, box, 2)
+
+        pygame.draw.circle(surface, theme.WARNING, center, 7, 2)
+        zone = str(hand.get("zone", "")).upper()
+        if zone and self.fonts is not None:
+            draw_text(surface, zone, self.fonts.small, theme.ACCENT, (center[0] + 10, center[1] - 10))

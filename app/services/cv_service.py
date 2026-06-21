@@ -45,6 +45,9 @@ class CVService:
         zone_split_x: float = 0.5,
         max_hands: int = 4,
         min_hand_confidence: float = 0.55,
+        hand_tracking_backend: str = "mediapipe",
+        face_tracking_backend: str = "mediapipe",
+        enable_face_detection: bool = True,
         mock_events: bool = False,
     ) -> None:
         self.event_bus = event_bus
@@ -55,8 +58,10 @@ class CVService:
             max_hands=max_hands,
             min_confidence=min_hand_confidence,
             split_x=self.zone_split_x,
+            backend=hand_tracking_backend,
         )
-        self.face_detection = FaceDetectionService()
+        self.face_detection = FaceDetectionService(backend=face_tracking_backend)
+        self.enable_face_detection = enable_face_detection
         self.mock_events = mock_events
         self._lock = Lock()
         self._latest_state = LatestCVState()
@@ -78,6 +83,9 @@ class CVService:
             zone_split_x=config.zone_split_x,
             max_hands=config.sixty_seven_max_hands,
             min_hand_confidence=config.sixty_seven_min_confidence,
+            hand_tracking_backend=config.hand_tracking_backend,
+            face_tracking_backend=config.face_tracking_backend,
+            enable_face_detection=config.cv_enable_face_detection,
             mock_events=mock_events,
         )
 
@@ -204,7 +212,7 @@ class CVService:
                 hand_assignments.append(assign_hand(hand, split_x=self.zone_split_x))
             except (TypeError, ValueError, KeyError):
                 continue
-        faces = self.face_detection.detect(frame)
+        faces = self.face_detection.detect(frame) if self.enable_face_detection else []
         face_assignments = []
         for face in faces:
             try:

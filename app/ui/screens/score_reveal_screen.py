@@ -119,6 +119,7 @@ class ScoreRevealScreen:
             rect = pygame.Rect(panel_x, start_y + index * (row_h + 24), panel_w, row_h)
             color = theme.PLAYER_COLORS[index % len(theme.PLAYER_COLORS)]
             border = theme.WARNING if row.get("winner") else color
+            self._draw_winner_fx(pygame, surface, rect, border, active=bool(row.get("winner")))
             draw_panel(pygame, surface, rect, fill=theme.SURFACE, border=border, width=2)
             crop_rect = pygame.Rect(rect.left + 18, rect.top + 14, 96, rect.height - 28)
             if row.get("crop_bgr") is not None:
@@ -146,7 +147,7 @@ class ScoreRevealScreen:
             )
             self._draw_row_details(surface, row, fonts, text_x, rect)
             score = "--" if row.get("score") is None else str(row["score"])
-            draw_text(surface, score, fonts.card_title, theme.TEXT, (rect.right - 34, rect.centery), anchor="midright")
+            self._draw_score_pop(pygame, surface, score, fonts.card_title, theme.TEXT, (rect.right - 34, rect.centery), active=bool(row.get("winner")))
 
     def _render_mog_mirror_portraits(
         self,
@@ -169,6 +170,7 @@ class ScoreRevealScreen:
             rect = pygame.Rect(left + index * (card_w + gap), top, card_w, card_h)
             color = theme.PLAYER_COLORS[index % len(theme.PLAYER_COLORS)]
             border = theme.WARNING if row.get("winner") else color
+            self._draw_winner_fx(pygame, surface, rect, border, active=bool(row.get("winner")))
             draw_panel(pygame, surface, rect, fill=theme.SURFACE, border=border, width=3)
             draw_text(surface, f"P{index + 1}", fonts.body, border, (rect.left + 24, rect.top + 18))
             draw_text(
@@ -188,7 +190,7 @@ class ScoreRevealScreen:
                 self._draw_crop(pygame, surface, crop_rect, row["crop_bgr"], border)
 
             score = "--" if row.get("score") is None else str(row["score"])
-            draw_text(surface, score, fonts.title, theme.TEXT, (rect.right - 28, rect.bottom - 76), anchor="midright")
+            self._draw_score_pop(pygame, surface, score, fonts.title, theme.TEXT, (rect.right - 28, rect.bottom - 76), active=bool(row.get("winner")))
             label = "WINNER" if row.get("winner") else str(row.get("label") or "")
             rank = row.get("rank")
             if rank and not row.get("winner"):
@@ -263,3 +265,40 @@ class ScoreRevealScreen:
         if any(status in {"failed", "timed_out"} for status in statuses):
             return "AI MEDIA FALLBACK"
         return "AI MEDIA QUEUED"
+
+    def _draw_winner_fx(self, pygame: Any, surface: Any, rect: Any, color: tuple[int, int, int], *, active: bool) -> None:
+        if not active:
+            return
+        now_ms = pygame.time.get_ticks()
+        pulse = int((now_ms // 90) % 12)
+        glow = rect.inflate(18 + pulse, 18 + pulse)
+        pygame.draw.rect(surface, (66, 50, 28), glow, 2, border_radius=10)
+        pygame.draw.rect(surface, color, rect.inflate(8, 8), 2, border_radius=10)
+        for index in range(8):
+            x = rect.left + int((now_ms // 7 + index * 93) % max(1, rect.width))
+            y = rect.top - 8 if index % 2 == 0 else rect.bottom + 8
+            pygame.draw.line(surface, color, (x, y), (x + 20, y + (10 if index % 2 == 0 else -10)), 2)
+
+    def _draw_score_pop(
+        self,
+        pygame: Any,
+        surface: Any,
+        score: str,
+        font: Any,
+        color: tuple[int, int, int],
+        position: tuple[int, int],
+        *,
+        active: bool,
+    ) -> None:
+        image = font.render(score, True, theme.WARNING if active else color)
+        if active:
+            pulse = 1.0 + ((pygame.time.get_ticks() // 120) % 4) * 0.025
+            image = pygame.transform.smoothscale(
+                image,
+                (max(1, int(image.get_width() * pulse)), max(1, int(image.get_height() * pulse))),
+            )
+        rect = image.get_rect(midright=position)
+        shadow = image.copy()
+        shadow.fill((36, 22, 12), special_flags=pygame.BLEND_RGB_MULT)
+        surface.blit(shadow, rect.move(3, 3))
+        surface.blit(image, rect)

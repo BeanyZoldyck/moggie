@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from app.core.app_event import normalized_point
+from app.cv.mediapipe_compat import import_mediapipe
 
 
 FACE_MESH_LANDMARKS = {
@@ -30,10 +32,12 @@ class FaceDetectionService:
         self,
         *,
         min_size_ratio: float = 0.12,
+        backend: str = "mediapipe",
         cv2_module: Any | None = None,
         mediapipe_module: Any | None = None,
     ) -> None:
         self.min_size_ratio = max(0.02, min(0.5, min_size_ratio))
+        self.backend = backend if backend in {"mediapipe", "cascade"} else "mediapipe"
         self._cv2 = cv2_module
         self._mp = mediapipe_module
         self._face_mesh: Any | None = None
@@ -48,9 +52,10 @@ class FaceDetectionService:
         if cv2 is None:
             return []
 
-        mesh_faces = self._detect_with_face_mesh(frame_bgr, cv2)
-        if mesh_faces:
-            return mesh_faces
+        if self.backend == "mediapipe":
+            mesh_faces = self._detect_with_face_mesh(frame_bgr, cv2)
+            if mesh_faces:
+                return mesh_faces
 
         cascade = self._load_cascade(cv2)
         if cascade is None:
@@ -126,7 +131,7 @@ class FaceDetectionService:
             return None
         if self._mp is None:
             try:
-                import mediapipe as mp
+                mp = import_mediapipe()
             except ImportError:
                 self._mesh_load_failed = True
                 return None
@@ -151,6 +156,9 @@ class FaceDetectionService:
         if self._load_failed:
             return None
         cascade_path = getattr(getattr(cv2, "data", None), "haarcascades", "") + "haarcascade_frontalface_default.xml"
+        if not cascade_path or not Path(cascade_path).exists():
+            self._load_failed = True
+            return None
         cascade = cv2.CascadeClassifier(cascade_path)
         if cascade.empty():
             self._load_failed = True

@@ -16,6 +16,9 @@ ENVIRONMENTS = {"development", "production", "test"}
 GAME_MODES = {"versus", "solo", "alternating"}
 STORAGE_MODES = {"none", "local", "usb"}
 PIKA_PROVIDERS = {"mcp", "fal"}
+CAMERA_BACKENDS = {"opencv", "qnx"}
+HAND_TRACKING_BACKENDS = {"mediapipe", "simple"}
+FACE_TRACKING_BACKENDS = {"mediapipe", "cascade"}
 
 
 @dataclass(frozen=True)
@@ -34,14 +37,23 @@ class MoggieConfig:
     media_dir: Path
     save_snapshots: bool
     save_generated_media: bool
+    camera_backend: str
     camera_index: int
     camera_width: int
     camera_height: int
     camera_fps: int
+    camera_gain: float
+    camera_brightness: int
     camera_retry_seconds: int
+    qnx_camera_grabber: Path
+    qnx_camera_unit: int
+    qnx_camera_decimate: int
     cv_width: int
     cv_height: int
     cv_fps: int
+    cv_enable_face_detection: bool
+    hand_tracking_backend: str
+    face_tracking_backend: str
     idle_attract_enabled: bool
     idle_timeout_seconds: int
     attract_rotation_seconds: int
@@ -108,14 +120,23 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         media_dir=_path(env, "MOGGIE_MEDIA_DIR", "./media"),
         save_snapshots=_bool(env, "MOGGIE_SAVE_SNAPSHOTS", False),
         save_generated_media=_bool(env, "MOGGIE_SAVE_GENERATED_MEDIA", False),
+        camera_backend=_enum(env, "MOGGIE_CAMERA_BACKEND", "opencv", CAMERA_BACKENDS),
         camera_index=_int(env, "MOGGIE_CAMERA_INDEX", 0, 0, 16),
         camera_width=_int(env, "MOGGIE_CAMERA_WIDTH", 640, 160, 3840),
         camera_height=_int(env, "MOGGIE_CAMERA_HEIGHT", 480, 120, 2160),
         camera_fps=_int(env, "MOGGIE_CAMERA_FPS", 30, 1, 120),
+        camera_gain=_float(env, "MOGGIE_CAMERA_GAIN", 1.0, 0.2, 4.0),
+        camera_brightness=_int(env, "MOGGIE_CAMERA_BRIGHTNESS", 0, -100, 100),
         camera_retry_seconds=_int(env, "MOGGIE_CAMERA_RETRY_SECONDS", 3, 1, 60),
+        qnx_camera_grabber=_path(env, "MOGGIE_QNX_CAMERA_GRABBER", "./moggi_camgrab"),
+        qnx_camera_unit=_int(env, "MOGGIE_QNX_CAMERA_UNIT", 1, 1, 4),
+        qnx_camera_decimate=_int(env, "MOGGIE_QNX_CAMERA_DECIMATE", 3, 1, 8),
         cv_width=_int(env, "MOGGIE_CV_WIDTH", 320, 80, 1920),
         cv_height=_int(env, "MOGGIE_CV_HEIGHT", 240, 60, 1080),
         cv_fps=_int(env, "MOGGIE_CV_FPS", 15, 1, 60),
+        cv_enable_face_detection=_bool(env, "MOGGIE_CV_ENABLE_FACE_DETECTION", True),
+        hand_tracking_backend=_enum(env, "MOGGIE_HAND_TRACKING_BACKEND", "mediapipe", HAND_TRACKING_BACKENDS),
+        face_tracking_backend=_enum(env, "MOGGIE_FACE_TRACKING_BACKEND", "mediapipe", FACE_TRACKING_BACKENDS),
         idle_attract_enabled=_bool(env, "MOGGIE_IDLE_ATTRACT_ENABLED", True),
         idle_timeout_seconds=_int(env, "MOGGIE_IDLE_TIMEOUT_SECONDS", 90, 5, 3600),
         attract_rotation_seconds=_int(env, "MOGGIE_ATTRACT_ROTATION_SECONDS", 8, 2, 120),

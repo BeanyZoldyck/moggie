@@ -71,6 +71,7 @@ class MoggieApp:
                 for app_event in self.event_bus.drain():
                     self.cv_service.record_event(app_event)
                     self.screen_manager.handle_app_event(app_event)
+                now_ms = pygame.time.get_ticks()
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
@@ -81,7 +82,7 @@ class MoggieApp:
                     else:
                         self.screen_manager.handle_event(event)
 
-                self.screen_manager.update(pygame.time.get_ticks(), dt_ms)
+                self.screen_manager.update(now_ms, dt_ms)
                 self.screen_manager.render(surface)
                 pygame.display.flip()
 
@@ -96,6 +97,8 @@ class MoggieApp:
             LOGGER.info("Moggie app exited after %s frame(s)", frame_count)
 
     def _is_quit_shortcut(self, event: Any, pygame: Any) -> bool:
-        if event.type != pygame.KEYDOWN or event.key != pygame.K_q:
+        if event.type != pygame.KEYDOWN:
             return False
-        return bool(event.mod & (pygame.KMOD_CTRL | pygame.KMOD_META))
+        if not event.mod & (pygame.KMOD_CTRL | pygame.KMOD_META):
+            return False
+        return event.key in {pygame.K_q, pygame.K_ESCAPE}

@@ -29,6 +29,7 @@ class EmojiTarget:
     expression: str
     spawn_ms: int
     scored: bool = False
+    hit: bool | None = None
 
 
 @dataclass
@@ -168,7 +169,9 @@ class EmojiFaceMatchScreen:
             preview_rect or camera_rect.inflate(-6, -6),
             self._faces(),
             split_x=self.manager.config.zone_split_x,
+            point_mapper=self.preview_renderer.point_to_screen,
         )
+        self._render_face_fx(pygame, surface, preview_rect or camera_rect.inflate(-6, -6), now_ms=pygame.time.get_ticks())
 
         lanes_rect = pygame.Rect(42, camera_rect.bottom + 20, width - 84, max(180, height - camera_rect.bottom - 88))
         lane_h = max(78, (lanes_rect.height - 16 * (len(self.lanes) - 1)) // max(1, len(self.lanes)))
@@ -197,20 +200,31 @@ class EmojiFaceMatchScreen:
         draw_panel(pygame, surface, rect, fill=fill, border=border, width=2)
         draw_text(surface, lane.name, self.fonts.body, theme.TEXT, (rect.left + 22, rect.top + 14), max_width=rect.width // 3)
         draw_text(surface, f"{lane.zone.upper()} / STREAK {lane.streak}", self.fonts.small, color, (rect.left + 22, rect.bottom - 34))
-        draw_text(surface, str(lane.score), self.fonts.card_title, theme.TEXT, (rect.right - 24, rect.centery), anchor="midright")
+        self._draw_lane_score(pygame, surface, rect, lane, color, now_ms)
 
         track = pygame.Rect(rect.left + 245, rect.top + 18, max(260, rect.width - 410), rect.height - 36)
         pygame.draw.line(surface, theme.DIM_BORDER, (track.left, track.centery), (track.right, track.centery), 2)
         target_x = track.left + int(track.width * self.target_progress)
         pygame.draw.line(surface, (255, 96, 116), (target_x, track.top), (target_x, track.bottom), 4)
         draw_text(surface, "MATCH", self.fonts.small, (255, 96, 116), (target_x, track.top - 2), anchor="midbottom")
+        self._render_target_gate_fx(pygame, surface, track, lane, color, now_ms)
 
         for target in lane.targets:
             progress = max(0.0, min(1.25, (now_ms - target.spawn_ms) / self.travel_ms))
             x = track.left + int(track.width * progress)
             glyph_rect = pygame.Rect(x - 24, track.centery - 24, 48, 48)
+            trail_color = self._emoji_heat_color(lane, color)
+            for trail_index in range(3):
+                trail_x = x - 16 * (trail_index + 1)
+                pygame.draw.line(surface, (72, 46, 58), (trail_x, track.centery), (x - 8, track.centery), 2)
+            if target.scored and target.hit is not None:
+                fx_color = theme.ACCENT if target.hit else theme.ERROR
+                pygame.draw.circle(surface, fx_color, glyph_rect.center, 30 + int((now_ms // 80) % 8), 2)
+                if not target.hit:
+                    pygame.draw.line(surface, fx_color, glyph_rect.topleft, glyph_rect.bottomright, 3)
+                    pygame.draw.line(surface, fx_color, glyph_rect.topright, glyph_rect.bottomleft, 3)
             pygame.draw.rect(surface, theme.SURFACE_DARK, glyph_rect, border_radius=8)
-            pygame.draw.rect(surface, color if not target.scored else theme.TEXT_MUTED, glyph_rect, 2, border_radius=8)
+            pygame.draw.rect(surface, trail_color if not target.scored else theme.TEXT_MUTED, glyph_rect, 2, border_radius=8)
             draw_text(surface, expression_glyph(target.expression), self.fonts.body, theme.TEXT, glyph_rect.center, anchor="center")
 
         feedback_color = theme.ACCENT if lane.feedback.startswith("HIT") else theme.TEXT_MUTED
@@ -270,6 +284,7 @@ class EmojiFaceMatchScreen:
             features = extract_expression_features(lane.face)
             result = evaluate_match(target.expression, features)
             target.scored = True
+            target.hit = result.hit
             lane.attempts += 1
             lane.score += result.points
             if result.hit:
@@ -281,6 +296,67 @@ class EmojiFaceMatchScreen:
                 lane.streak = 0
                 lane.feedback = f"MISS {expression_label(result.target)}"
             lane.feedback_until_ms = now_ms + 750
+
+    def _render_face_fx(self, pygame: Any, surface: Any, rect: Any, *, now_ms: int) -> None:
+        for lane in self.lanes:
+            if lane.face is None:
+                continue
+            center = lane.face.get("center") if isinstance(lane.face.get("center"), dict) else None
+            if center is None:
+                continue
+            point = self.preview_renderer.point_to_screen(center, zone=lane.zone, fallback_rect=rect)
+            if point is None:
+                continue
+            heat = self._lane_heat(lane)
+            color = self._emoji_heat_color(lane, theme.PLAYER_COLORS[0] if lane.zone == "p1" else theme.PLAYER_COLORS[1])
+            radius = int(24 + heat * 28 + (now_ms // 90) % 8)
+            pygame.draw.circle(surface, color, point, radius, 2)
+            pygame.draw.line(surface, (82, 52, 64), (point[0] - radius - 14, point[1]), (point[0] - radius // 2, point[1]), 2)
+            pygame.draw.line(surface, (82, 52, 64), (point[0] + radius // 2, point[1]), (point[0] + radius + 14, point[1]), 2)
+
+    def _render_target_gate_fx(self, pygame: Any, surface: Any, track: Any, lane: EmojiLane, color: tuple[int, int, int], now_ms: int) -> None:
+        heat = self._lane_heat(lane)
+        gate_x = track.left + int(track.width * self.target_progress)
+        gate_color = self._emoji_heat_color(lane, color)
+        if heat > 0.05:
+            pulse = int(heat * 22 + (now_ms // 60) % 6)
+            pygame.draw.rect(surface, gate_color, pygame.Rect(gate_x - 5 - pulse // 4, track.top - 4, 10 + pulse // 2, track.height + 8), 2, border_radius=4)
+        for offset in (0, 22, 44):
+            x = track.left + int((now_ms // 9 + offset) % max(1, track.width))
+            pygame.draw.line(surface, (76, 48, 62), (x, track.bottom + 3), (x + 20, track.bottom + 11), 1)
+
+    def _draw_lane_score(self, pygame: Any, surface: Any, rect: Any, lane: EmojiLane, color: tuple[int, int, int], now_ms: int) -> None:
+        heat = self._lane_heat(lane)
+        score_color = self._emoji_heat_color(lane, color)
+        image = self.fonts.card_title.render(str(lane.score), True, score_color)
+        pulse = 0.12 if lane.feedback_until_ms > now_ms and lane.feedback.startswith("HIT") else 0.0
+        scale = 1.0 + min(0.34, lane.streak * 0.035) + pulse
+        size = (max(1, int(image.get_width() * scale)), max(1, int(image.get_height() * scale)))
+        max_width = max(70, rect.width - 580)
+        if size[0] > max_width:
+            fit = max_width / size[0]
+            size = (max(1, int(size[0] * fit)), max(1, int(size[1] * fit)))
+        if size != image.get_size():
+            image = pygame.transform.smoothscale(image, size)
+        score_rect = image.get_rect(midright=(rect.right - 24, rect.centery))
+        surface.blit(image, score_rect)
+        if lane.streak >= 2:
+            draw_text(surface, f"x{lane.streak}", self.fonts.small, score_color, (score_rect.right, score_rect.top - 14), anchor="topright")
+
+    def _lane_heat(self, lane: EmojiLane) -> float:
+        feedback_heat = 0.45 if lane.feedback_until_ms > _pygame().time.get_ticks() else 0.0
+        return max(0.0, min(1.0, lane.streak * 0.16 + feedback_heat))
+
+    def _emoji_heat_color(self, lane: EmojiLane, base: tuple[int, int, int]) -> tuple[int, int, int]:
+        heat = self._lane_heat(lane)
+        target = theme.ACCENT if not lane.feedback.startswith("MISS") else theme.ERROR
+        if heat > 0.65:
+            target = theme.WARNING if not lane.feedback.startswith("MISS") else theme.ERROR
+        return (
+            int(base[0] + (target[0] - base[0]) * heat),
+            int(base[1] + (target[1] - base[1]) * heat),
+            int(base[2] + (target[2] - base[2]) * heat),
+        )
 
     def _clock_label(self) -> str:
         if self.started_at_ms is None:

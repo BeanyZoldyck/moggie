@@ -44,6 +44,41 @@ class SixtySevenCounterTests(unittest.TestCase):
 
         self.assertEqual(counter.reps, 2)
 
+    def test_fast_motion_continues_scoring_between_cv_frames(self) -> None:
+        counter = SixtySevenCounter(cooldown_ms=0)
+        left_high = [
+            {"confidence": 0.9, "palm_center": {"x": 0.20, "y": 0.28}},
+            {"confidence": 0.9, "palm_center": {"x": 0.28, "y": 0.68}},
+        ]
+        right_high = [
+            {"confidence": 0.9, "palm_center": {"x": 0.20, "y": 0.68}},
+            {"confidence": 0.9, "palm_center": {"x": 0.28, "y": 0.28}},
+        ]
+
+        counter.update_from_hands(left_high, now_ms=100, frame_timestamp_ms=100)
+        counter.update_from_hands(right_high, now_ms=180, frame_timestamp_ms=180)
+        first_rate = counter.score_rate
+        counter.tick(16)
+        first_score = counter.display_score
+        counter.tick(16)
+
+        self.assertGreater(first_rate, 0)
+        self.assertGreater(first_score, 0)
+        self.assertGreater(counter.display_score, first_score)
+
+    def test_static_hands_do_not_accumulate_motion_score(self) -> None:
+        counter = SixtySevenCounter(cooldown_ms=0)
+        hands = [
+            {"confidence": 0.9, "palm_center": {"x": 0.20, "y": 0.40}},
+            {"confidence": 0.9, "palm_center": {"x": 0.28, "y": 0.62}},
+        ]
+
+        counter.update_from_hands(hands, now_ms=100, frame_timestamp_ms=100)
+        counter.update_from_hands(hands, now_ms=180, frame_timestamp_ms=180)
+        counter.tick(16)
+
+        self.assertEqual(counter.display_score, 0)
+
     def test_counter_rejects_tiny_vertical_alternation_jitter(self) -> None:
         counter = SixtySevenCounter(cooldown_ms=0)
         almost_level = [

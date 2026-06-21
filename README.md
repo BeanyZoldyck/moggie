@@ -115,6 +115,19 @@ MOGGIE_CAMERA_INDEX=1 ./scripts/smoke_test_camera.py
 
 If the preview is blank, unplug/replug the webcam, rerun the smoke test with the discovered index, update `/etc/moggie/moggie.env`, and restart the service.
 
+### QNX Raspberry Pi Camera Module 3
+
+On the QNX Raspberry Pi 5 image, use the QNX CamAPI backend instead of `cv2.VideoCapture`:
+
+```bash
+gcc native/moggi_camgrab.c -o moggi_camgrab -lcamapi
+./moggi_camgrab
+MOGGIE_CAMERA_BACKEND=qnx ./scripts/smoke_test_camera.py
+MOGGIE_CAMERA_BACKEND=qnx python -m app.main
+```
+
+The helper streams NV12 frames from the CamAPI viewfinder into Python. Pygame display still needs to run on the Pi HDMI console.
+
 ## Judging Day Runbook
 
 1. Boot the Pi and confirm the idle attract screen appears after the home screen sits idle.
