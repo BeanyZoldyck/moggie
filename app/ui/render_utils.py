@@ -7,7 +7,7 @@ from typing import Any
 from app.ui import theme
 
 
-ASSET_ROOT = Path(__file__).resolve().parents[2] / "ui" / "moggi" / "assets"
+ASSET_ROOT = Path(__file__).resolve().parents[1] / "assets"
 _IMAGE_CACHE: dict[str, Any] = {}
 _SCALED_IMAGE_CACHE: dict[tuple[str, tuple[int, int]], Any] = {}
 

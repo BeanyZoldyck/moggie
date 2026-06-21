@@ -1,0 +1,7 @@
+pygame>=2.5
+opencv-python>=4.9
+mediapipe>=0.10
+redis>=5.0
+
+[dev]
+pytest>=8.0
