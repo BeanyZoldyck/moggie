@@ -145,9 +145,9 @@ class MogMirrorScreen:
             color = (255, 60, 160) if index == 0 else (0, 130, 255)
 
             if index == 0:
-                rect = pygame.Rect(50, height - 205, 260, 120)
+                rect = pygame.Rect(40, height - 210, 260, 120)
             else:
-                rect = pygame.Rect(655, height - 205, 260, 120)
+                rect = pygame.Rect(655, height - 210, 260, 120)
 
             self._draw_live_score(
                 pygame,
