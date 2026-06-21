@@ -23,6 +23,20 @@ class MogMirrorGame:
     max_players = 2
 
 
+# Prompt for the start-of-game "mog avatar" image-to-video pass (fal.ai Pika).
+MOG_AVATAR_PROMPT = (
+    "Transform this person into their most 'mogged' version: a chiseled, razor-sharp jawline, "
+    "intense hunter eyes with a confident slight squint, flawless facial symmetry and ideal "
+    "facial thirds, high cheekbones and clean skin, hyper-attractive and cinematic. Keep their "
+    "identity clearly recognizable as the same person. Subtle confident head movement, looking "
+    "straight at the camera, dramatic studio lighting."
+)
+MOG_AVATAR_NEGATIVE_PROMPT = (
+    "distorted face, deformed features, extra faces, multiple people, warped jaw, asymmetric, "
+    "blurry, low quality, identity change, different person, cartoon, disfigured, glitch"
+)
+
+
 def score_aura(
     *,
     session_id: str,

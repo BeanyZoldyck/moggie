@@ -1,14 +1,30 @@
 from __future__ import annotations
 
+import queue
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from app.games.mog_mirror import crop_upper_body, label_for_aura, score_aura
+from app.core.app_event import EVENT_AI_JOB_UPDATE, AppEvent
+from app.cv.zone_assignment import assign_face
+from app.games.mog_mirror import (
+    MOG_AVATAR_NEGATIVE_PROMPT,
+    MOG_AVATAR_PROMPT,
+    crop_upper_body,
+    label_for_aura,
+    score_aura,
+)
 from app.ui import theme
 from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text, scaled_asset_image
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.face_overlay_renderer import FaceOverlayRenderer
 from app.util.images import encode_bgr_jpeg
+from app.util.video_playback import LoopingVideoPlayer, download_in_background
+
+# Round phases.
+PHASE_READY = "ready"
+PHASE_GENERATING = "generating"
+PHASE_SCORING = "scoring"
 
 
 def _pygame() -> Any:
@@ -44,6 +60,18 @@ class MogMirrorScreen:
         self.finished = False
         self.message = "CENTER BOTH FACES IN THEIR LANES"
         self.manual_override = False
+        # --- Mog Avatar mode state ---
+        self.phase = PHASE_READY
+        self.avatar_jobs: dict[str, str] = {}
+        self.avatar_status: dict[str, str] = {}
+        self.avatar_players: dict[str, LoopingVideoPlayer] = {}
+        self.avatar_paths: dict[str, Path] = {}
+        self.photo_faces: dict[str, dict[str, Any] | None] = {}
+        self.lane_crops: dict[str, Any] = {}
+        self.avatar_fallback = False
+        self.generation_deadline_ms: int | None = None
+        self._download_queue: "queue.Queue[tuple[str, Path | None]]" = queue.Queue()
+        self._video_face_detector: Any | None = None
 
     def on_enter(self, **_: Any) -> None:
         names = self.manager.state.player_names or ["Player 1", "Player 2"]
@@ -60,6 +88,20 @@ class MogMirrorScreen:
         self.finished = False
         self.message = "CENTER BOTH FACES IN THEIR LANES"
         self.manual_override = False
+        self._reset_avatar_state()
+
+    def _reset_avatar_state(self) -> None:
+        self._close_players()
+        self.phase = PHASE_READY
+        self.avatar_jobs = {}
+        self.avatar_status = {}
+        self.avatar_players = {}
+        self.avatar_paths = {}
+        self.photo_faces = {}
+        self.lane_crops = {}
+        self.avatar_fallback = False
+        self.generation_deadline_ms = None
+        self._download_queue = queue.Queue()
 
     def handle_event(self, event: Any) -> None:
         pygame = _pygame()
@@ -68,25 +110,54 @@ class MogMirrorScreen:
         if event.key == pygame.K_ESCAPE:
             self.manager.go_to("home")
         elif event.key in {pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER}:
+            if self.phase != PHASE_READY:
+                return
             if self._ready_to_capture() or self.manager.config.allow_manual_start_override:
                 self.manual_override = not self._ready_to_capture()
-                self.started_at_ms = pygame.time.get_ticks()
-                self.message = "HOLD THAT ENERGY"
+                if self._avatar_mode_enabled():
+                    self._capture_and_request_avatars()
+                else:
+                    self.started_at_ms = pygame.time.get_ticks()
+                    self.phase = PHASE_SCORING
+                    self.message = "HOLD THAT ENERGY"
             else:
                 self.message = "NEED ONE FACE IN EACH LANE"
 
-    def handle_app_event(self, event: Any) -> None:
-        return None
+    def handle_app_event(self, event: AppEvent) -> None:
+        if event.type != EVENT_AI_JOB_UPDATE or self.phase != PHASE_GENERATING:
+            return
+        job_id = event.payload.get("job_id")
+        if not isinstance(job_id, str):
+            return
+        zone = self._zone_for_job(job_id)
+        if zone is None:
+            return
+        status = event.payload.get("status")
+        if status == "succeeded":
+            result = (event.payload.get("metadata") or {}).get("result") or {}
+            url = result.get("uri") or result.get("video_url")
+            if isinstance(url, str) and url:
+                self._begin_avatar_download(zone, url)
+            else:
+                self.avatar_status[zone] = "failed"
+        elif status in {"failed", "timed_out"}:
+            self.avatar_status[zone] = "failed"
 
     def update(self, now_ms: int, dt_ms: int) -> None:
-        self._sync_faces()
+        if self.phase == PHASE_READY:
+            self._sync_faces()
+            return
+        if self.phase == PHASE_GENERATING:
+            self._update_generating(now_ms)
+            return
+        # PHASE_SCORING
         if self.finished:
             return
         if self.started_at_ms is None:
             return
-        elapsed_ms = now_ms - self.started_at_ms
+        self._update_scoring_faces(now_ms)
         self._update_live_scores(now_ms)
-        if elapsed_ms >= self.live_score_duration_ms:
+        if now_ms - self.started_at_ms >= self.live_score_duration_ms:
             self._finish_round()
 
     def render(self, surface: Any) -> None:
@@ -106,7 +177,7 @@ class MogMirrorScreen:
         draw_text(surface, self._clock_label(), fonts.card_title, theme.ACCENT, (width - 48, 34), anchor="topright")
 
         camera_rect = pygame.Rect(42, 132, width - 84, max(260, height - 328))
-        frame = self.manager.camera_service.latest_display_frame() if self.manager.camera_service is not None else None
+        frame = self._frame_to_show()
         diagnostic = (
             self.manager.camera_service.diagnostic_message
             if self.manager.camera_service is not None
@@ -120,7 +191,7 @@ class MogMirrorScreen:
             show_divider=self.manager.config.show_zone_divider,
             split_pane=self.manager.config.show_zone_divider,
         )
-        faces = self._faces()
+        faces = self._faces_for_overlay()
         self.face_renderer.render(
             surface,
             preview_rect or camera_rect.inflate(-6, -6),
@@ -156,6 +227,227 @@ class MogMirrorScreen:
         draw_text(surface, self.message, fonts.small, theme.TEXT_MUTED, (42, height - 32), max_width=width // 2)
         draw_text(surface, help_text, fonts.small, theme.TEXT_MUTED, (width - 42, height - 32), anchor="topright")
 
+        if self.phase == PHASE_GENERATING:
+            self._render_generating_overlay(surface, width, height)
+
+    # ------------------------------------------------------------------
+    # Avatar mode
+    # ------------------------------------------------------------------
+    def _avatar_mode_enabled(self) -> bool:
+        config = getattr(self.manager, "config", None)
+        service = getattr(self.manager, "ai_job_service", None)
+        return bool(config is not None and getattr(config, "enable_pika", False) and service is not None)
+
+    def _capture_and_request_avatars(self) -> None:
+        pygame = _pygame()
+        service = self.manager.ai_job_service
+        snapshot = self.manager.camera_service.snapshot() if self.manager.camera_service is not None else None
+        frame = snapshot.display_bgr if snapshot is not None else None
+        submitted_any = False
+        for lane in self.lanes:
+            self.photo_faces[lane.zone] = lane.face
+            crop = crop_upper_body(frame, lane.face, lane.zone)
+            self.lane_crops[lane.zone] = crop
+            image_bytes = encode_bgr_jpeg(crop)
+            if not image_bytes:
+                self.avatar_status[lane.zone] = "failed"
+                continue
+            payload = {
+                "game_type": "mog_mirror",
+                "display_name": lane.name,
+                "zone": lane.zone,
+                "image_bytes": image_bytes,
+                "image_mime_type": "image/jpeg",
+                "prompt": MOG_AVATAR_PROMPT,
+                "negative_prompt": MOG_AVATAR_NEGATIVE_PROMPT,
+                "has_crop": crop is not None,
+            }
+            job_id = service.submit("mog_mirror.avatar_video", payload)
+            self.avatar_jobs[lane.zone] = job_id
+            self.avatar_status[lane.zone] = "generating"
+            submitted_any = True
+
+        now_ms = pygame.time.get_ticks()
+        if not submitted_any:
+            self._enter_fallback_scoring(now_ms)
+            return
+        timeout_seconds = int(getattr(self.manager.config, "ai_timeout_seconds", 60))
+        # Avatar jobs run sequentially through the single AI worker, so budget per lane.
+        self.generation_deadline_ms = now_ms + (timeout_seconds * max(1, len(self.lanes)) + 15) * 1000
+        self.phase = PHASE_GENERATING
+        self.message = "LOADING MOG AVATAR"
+
+    def _zone_for_job(self, job_id: str) -> str | None:
+        for zone, candidate in self.avatar_jobs.items():
+            if candidate == job_id:
+                return zone
+        return None
+
+    def _begin_avatar_download(self, zone: str, url: str) -> None:
+        if self.avatar_status.get(zone) in {"downloading", "ready"}:
+            return
+        self.avatar_status[zone] = "downloading"
+        download_in_background(url, lambda path, z=zone: self._download_queue.put((z, path)))
+
+    def _update_generating(self, now_ms: int) -> None:
+        self._drain_download_queue()
+        zones = [lane.zone for lane in self.lanes]
+        statuses = [self.avatar_status.get(zone) for zone in zones]
+        if any(status == "failed" for status in statuses):
+            self._enter_fallback_scoring(now_ms)
+            return
+        if self.generation_deadline_ms is not None and now_ms >= self.generation_deadline_ms:
+            self._enter_fallback_scoring(now_ms)
+            return
+        ready = all(status == "ready" for status in statuses) and all(
+            self.avatar_players.get(zone) is not None for zone in zones
+        )
+        if ready:
+            self._enter_avatar_scoring(now_ms)
+
+    def _drain_download_queue(self) -> None:
+        while True:
+            try:
+                zone, path = self._download_queue.get_nowait()
+            except queue.Empty:
+                break
+            if path is None:
+                self.avatar_status[zone] = "failed"
+                continue
+            player = LoopingVideoPlayer(path)
+            if not player.is_ready:
+                player.close()
+                self.avatar_status[zone] = "failed"
+                continue
+            self.avatar_players[zone] = player
+            self.avatar_paths[zone] = path
+            self.avatar_status[zone] = "ready"
+
+    def _enter_avatar_scoring(self, now_ms: int) -> None:
+        self.phase = PHASE_SCORING
+        self.avatar_fallback = False
+        self.started_at_ms = now_ms
+        self.message = "HOLD THAT ENERGY"
+
+    def _enter_fallback_scoring(self, now_ms: int) -> None:
+        self._close_players()
+        self.avatar_players = {}
+        self.phase = PHASE_SCORING
+        self.avatar_fallback = True
+        self.started_at_ms = now_ms
+        self.message = "CAMERA MODE — HOLD THAT ENERGY"
+
+    def _avatar_scoring_active(self) -> bool:
+        return self.phase == PHASE_SCORING and not self.avatar_fallback and bool(self.avatar_players)
+
+    def _update_scoring_faces(self, now_ms: int) -> None:
+        if not self._avatar_scoring_active():
+            self._sync_faces()
+            return
+        for lane in self.lanes:
+            player = self.avatar_players.get(lane.zone)
+            if player is None:
+                continue
+            player.advance(now_ms)
+            face = self._detect_video_face(player.current_frame_bgr(), lane.zone)
+            if face is not None:
+                lane.face = face
+            elif self.photo_faces.get(lane.zone) is not None:
+                lane.face = self.photo_faces[lane.zone]
+            # else: keep last-known face
+
+    def _detect_video_face(self, frame: Any, zone: str) -> dict[str, Any] | None:
+        if frame is None:
+            return None
+        detector = self._video_face_detector
+        if detector is None:
+            # Screen-owned detector: mediapipe FaceMesh is not thread-safe, so we
+            # must not share cv_service's instance (it runs on a worker thread).
+            from app.cv.face_detection import FaceDetectionService
+
+            detector = FaceDetectionService()
+            self._video_face_detector = detector
+        try:
+            faces = detector.detect(frame)
+        except Exception:  # noqa: BLE001 - a flaky generated frame must not crash the round
+            return None
+        if not faces:
+            return None
+        face = dict(faces[0])
+        assign_face(face, split_x=self._zone_split_x())
+        face["zone"] = zone
+        return face
+
+    def _zone_split_x(self) -> float:
+        return float(getattr(self.manager.config, "zone_split_x", 0.5))
+
+    def _frame_to_show(self) -> Any | None:
+        camera = self.manager.camera_service.latest_display_frame() if self.manager.camera_service is not None else None
+        if self._avatar_scoring_active():
+            composite = self._avatar_composite_frame()
+            if composite is not None:
+                return composite
+        return camera
+
+    def _avatar_composite_frame(self) -> Any | None:
+        frames = [self.avatar_players.get(lane.zone) for lane in self.lanes]
+        current = [player.current_frame_bgr() if player is not None else None for player in frames]
+        if any(frame is None for frame in current):
+            return None
+        try:
+            import cv2
+            import numpy as np
+        except Exception:  # noqa: BLE001
+            return None
+        target_h = min(frame.shape[0] for frame in current)
+        resized = []
+        for frame in current:
+            scale_w = int(frame.shape[1] * target_h / frame.shape[0])
+            resized.append(cv2.resize(frame, (max(1, scale_w), target_h)))
+        half_w = min(frame.shape[1] for frame in resized)
+        cropped = [frame[:, :half_w] for frame in resized]
+        return np.hstack(cropped)
+
+    def _faces_for_overlay(self) -> list[dict[str, Any]]:
+        if self._avatar_scoring_active():
+            # The avatar video is its own visual; landmark boxes would be noisy and
+            # mis-mapped against the composite, so we skip the overlay here.
+            return []
+        return self._faces()
+
+    def _render_generating_overlay(self, surface: Any, width: int, height: int) -> None:
+        pygame = _pygame()
+        assert self.fonts is not None
+        overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 190))
+        surface.blit(overlay, (0, 0))
+        dots = "." * (1 + (pygame.time.get_ticks() // 500) % 3)
+        draw_text(surface, f"LOADING MOG AVATAR{dots}", self.fonts.masthead, theme.ACCENT, (width // 2, height // 2 - 40), anchor="center")
+        draw_text(surface, self._avatar_status_line(), self.fonts.body, theme.TEXT, (width // 2, height // 2 + 28), anchor="center")
+
+    def _avatar_status_line(self) -> str:
+        labels = {
+            "generating": "GENERATING",
+            "downloading": "DOWNLOADING",
+            "ready": "READY",
+            "failed": "FAILED",
+        }
+        parts = [
+            f"{lane.zone.upper()} {labels.get(self.avatar_status.get(lane.zone, 'generating'), 'GENERATING')}"
+            for lane in self.lanes
+        ]
+        return "  ·  ".join(parts)
+
+    def _close_players(self) -> None:
+        for player in self.avatar_players.values():
+            try:
+                player.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    # ------------------------------------------------------------------
+    # Shared / camera logic
+    # ------------------------------------------------------------------
     def _sync_faces(self) -> None:
         faces_by_zone = {face.get("zone"): face for face in self._faces()}
         for lane in self.lanes:
@@ -214,8 +506,11 @@ class MogMirrorScreen:
         self.finished = True
         now_ms = self.started_at_ms + self.live_score_duration_ms if self.started_at_ms is not None else 0
         self._update_live_scores(now_ms, force=True)
-        snapshot = self.manager.camera_service.snapshot() if self.manager.camera_service is not None else None
-        frame = snapshot.display_bgr if snapshot is not None else None
+        avatar_mode = self._avatar_scoring_active()
+        camera_frame = None
+        if not avatar_mode:
+            snapshot = self.manager.camera_service.snapshot() if self.manager.camera_service is not None else None
+            camera_frame = snapshot.display_bgr if snapshot is not None else None
         scored = []
         for lane in self.lanes:
             score = self._average_live_score(lane)
@@ -234,8 +529,7 @@ class MogMirrorScreen:
         for lane, score in scored:
             winner = score == high_score
             label = label_for_aura(score, winner=winner, face_detected=lane.face is not None)
-            crop = crop_upper_body(frame, lane.face, lane.zone)
-            ai_job_ids = self._submit_ai_jobs(lane, crop, score, label)
+            crop, ai_job_ids = self._reveal_media(lane, score, label, avatar_mode, camera_frame)
             score_record = self.manager.leaderboard_service.record_score(
                 session_id=self.session_id,
                 player_display_name=lane.name,
@@ -246,6 +540,7 @@ class MogMirrorScreen:
                     "zone": lane.zone,
                     "face_detected": lane.face is not None,
                     "manual_override": self.manual_override,
+                    "avatar_mode": avatar_mode,
                     "ai_job_ids": ai_job_ids,
                 },
             )
@@ -265,7 +560,30 @@ class MogMirrorScreen:
             metadata={"manual_override": self.manual_override, "scores": {row["display_name"]: row["score"] for row in rows}},
         )
         self.manager.state.reveal_rows = rows
+        self._close_players()
         self.manager.go_to("score_reveal")
+
+    def _reveal_media(
+        self,
+        lane: MirrorLane,
+        score: int,
+        label: str,
+        avatar_mode: bool,
+        camera_frame: Any | None,
+    ) -> tuple[Any | None, list[str]]:
+        if avatar_mode:
+            player = self.avatar_players.get(lane.zone)
+            frame = player.current_frame_bgr() if player is not None else None
+            if frame is not None:
+                crop = crop_upper_body(frame, lane.face, lane.zone)
+            else:
+                crop = self.lane_crops.get(lane.zone)
+            # Avatar already generated at the start of the round; reuse its job id
+            # for the reveal instead of spending a second generation.
+            ai_job_ids = [self.avatar_jobs[lane.zone]] if lane.zone in self.avatar_jobs else []
+            return crop, ai_job_ids
+        crop = crop_upper_body(camera_frame, lane.face, lane.zone)
+        return crop, self._submit_ai_jobs(lane, crop, score, label)
 
     def _average_live_score(self, lane: MirrorLane) -> int | None:
         if not lane.live_score_samples:

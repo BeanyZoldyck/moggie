@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from app.core.app_event import EVENT_AI_JOB_UPDATE, AppEvent, ai_job_update_payload
 from app.games.mog_mirror import crop_upper_body, label_for_aura, score_aura
-from app.ui.screens.mog_mirror_screen import MirrorLane, MogMirrorScreen
+from app.ui.screens.mog_mirror_screen import (
+    PHASE_GENERATING,
+    PHASE_READY,
+    PHASE_SCORING,
+    MirrorLane,
+    MogMirrorScreen,
+)
 
 
 class FakeFrame:
@@ -142,6 +150,105 @@ class MogMirrorTests(unittest.TestCase):
         self.assertEqual(screen._average_live_score(lane), 67)
 
 
+class MogAvatarModeTests(unittest.TestCase):
+    def _make_screen(self) -> MogMirrorScreen:
+        service = FakeAIJobService()
+        camera = SimpleNamespace(
+            snapshot=lambda: SimpleNamespace(display_bgr=FakeFrame(640, 480)),
+            latest_display_frame=lambda: FakeFrame(640, 480),
+            diagnostic_message="",
+        )
+        config = SimpleNamespace(
+            enable_pika=True,
+            enable_image_generation=True,
+            allow_manual_start_override=True,
+            zone_split_x=0.5,
+            show_zone_divider=False,
+            ai_timeout_seconds=60,
+        )
+        manager = SimpleNamespace(ai_job_service=service, config=config, camera_service=camera, cv_service=None)
+        screen = MogMirrorScreen(manager)
+        screen.session_id = "session-avatar"
+        screen.lanes = [
+            MirrorLane(name="Mina", zone="p1", face=_mog_face()),
+            MirrorLane(name="Theo", zone="p2", face=_mog_face()),
+        ]
+        return screen
+
+    def _capture(self, screen: MogMirrorScreen, *, ticks: int = 1_000) -> None:
+        fake_pygame = SimpleNamespace(time=SimpleNamespace(get_ticks=lambda: ticks))
+        with patch("app.ui.screens.mog_mirror_screen._pygame", return_value=fake_pygame), patch(
+            "app.ui.screens.mog_mirror_screen.encode_bgr_jpeg", return_value=b"jpeg"
+        ):
+            screen._capture_and_request_avatars()
+
+    def test_capture_submits_one_avatar_job_per_lane_and_enters_generating(self) -> None:
+        screen = self._make_screen()
+
+        self._capture(screen, ticks=1_000)
+
+        self.assertEqual(screen.phase, PHASE_GENERATING)
+        kinds = [kind for kind, _ in screen.manager.ai_job_service.submitted]
+        self.assertEqual(kinds, ["mog_mirror.avatar_video", "mog_mirror.avatar_video"])
+        self.assertEqual(screen.avatar_jobs, {"p1": "job-1", "p2": "job-2"})
+        self.assertEqual(screen.avatar_status, {"p1": "generating", "p2": "generating"})
+        # start photo crops + faces cached for the scoring fallback
+        self.assertEqual(set(screen.lane_crops), {"p1", "p2"})
+        self.assertEqual(set(screen.photo_faces), {"p1", "p2"})
+        # deadline budgets one timeout per lane (jobs run sequentially) + buffer
+        self.assertEqual(screen.generation_deadline_ms, 1_000 + (60 * 2 + 15) * 1000)
+        payload = screen.manager.ai_job_service.submitted[0][1]
+        self.assertEqual(payload["image_mime_type"], "image/jpeg")
+        self.assertIn("prompt", payload)
+        self.assertIn("negative_prompt", payload)
+
+    def test_both_avatars_ready_starts_scoring_round(self) -> None:
+        screen = self._make_screen()
+        self._capture(screen, ticks=1_000)
+
+        with patch("app.ui.screens.mog_mirror_screen.download_in_background", new=_sync_download), patch(
+            "app.ui.screens.mog_mirror_screen.LoopingVideoPlayer", new=FakePlayer
+        ):
+            screen.handle_app_event(_succeeded("job-1"))
+            screen.handle_app_event(_succeeded("job-2"))
+            screen._update_generating(5_000)
+
+        self.assertEqual(screen.phase, PHASE_SCORING)
+        self.assertFalse(screen.avatar_fallback)
+        self.assertEqual(screen.started_at_ms, 5_000)
+        self.assertEqual(set(screen.avatar_players), {"p1", "p2"})
+
+    def test_failed_avatar_job_falls_back_to_camera(self) -> None:
+        screen = self._make_screen()
+        self._capture(screen, ticks=1_000)
+
+        screen.handle_app_event(_failed("job-1"))
+        screen._update_generating(5_000)
+
+        self.assertEqual(screen.phase, PHASE_SCORING)
+        self.assertTrue(screen.avatar_fallback)
+        self.assertEqual(screen.started_at_ms, 5_000)
+        self.assertEqual(screen.avatar_players, {})
+
+    def test_deadline_exceeded_falls_back_to_camera(self) -> None:
+        screen = self._make_screen()
+        self._capture(screen, ticks=1_000)
+
+        screen._update_generating(screen.generation_deadline_ms + 1)
+
+        self.assertEqual(screen.phase, PHASE_SCORING)
+        self.assertTrue(screen.avatar_fallback)
+
+    def test_app_event_ignored_when_not_generating(self) -> None:
+        screen = self._make_screen()
+        screen.phase = PHASE_READY
+        screen.avatar_jobs = {"p1": "job-1"}
+
+        screen.handle_app_event(_succeeded("job-1"))
+
+        self.assertEqual(screen.avatar_status, {})
+
+
 def _mog_face(offset: float = 0.0) -> dict[str, object]:
     return {
         "confidence": 1.0,
@@ -173,6 +280,47 @@ class FakeAIJobService:
         assert self.submitted is not None
         self.submitted.append((kind, payload))
         return f"job-{len(self.submitted)}"
+
+
+class FakePlayer:
+    is_ready = True
+
+    def __init__(self, path: object, **_: object) -> None:
+        self.path = path
+        self.closed = False
+
+    def current_frame_bgr(self) -> FakeFrame:
+        return FakeFrame(320, 480)
+
+    def advance(self, now_ms: float) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _sync_download(url: str, on_ready: object, **_: object) -> None:
+    # Stand in for the threaded downloader: deliver a fake local path immediately.
+    on_ready(Path("/tmp/moggie_fake_avatar.mp4"))  # type: ignore[operator]
+
+
+def _succeeded(job_id: str) -> AppEvent:
+    return AppEvent.create(
+        EVENT_AI_JOB_UPDATE,
+        payload=ai_job_update_payload(
+            job_id,
+            "succeeded",
+            kind="mog_mirror.avatar_video",
+            result={"uri": "https://v3.fal.media/files/avatar.mp4"},
+        ),
+    )
+
+
+def _failed(job_id: str) -> AppEvent:
+    return AppEvent.create(
+        EVENT_AI_JOB_UPDATE,
+        payload=ai_job_update_payload(job_id, "failed", kind="mog_mirror.avatar_video", error="boom"),
+    )
 
 
 if __name__ == "__main__":
