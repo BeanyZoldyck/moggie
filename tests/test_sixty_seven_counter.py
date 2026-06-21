@@ -79,6 +79,18 @@ class SixtySevenCounterTests(unittest.TestCase):
 
         self.assertEqual(counter.display_score, 0)
 
+    def test_single_moving_hand_can_keep_score_alive(self) -> None:
+        counter = SixtySevenCounter(cooldown_ms=0)
+        first = [{"confidence": 0.45, "motion_score": 0.20, "palm_center": {"x": 0.25, "y": 0.58}, "source": "simple_contour"}]
+        second = [{"confidence": 0.45, "motion_score": 0.34, "palm_center": {"x": 0.25, "y": 0.38}, "source": "simple_contour"}]
+
+        counter.update_from_hands(first, now_ms=100, frame_timestamp_ms=100)
+        counter.update_from_hands(second, now_ms=180, frame_timestamp_ms=180)
+        counter.tick(50)
+
+        self.assertGreater(counter.score_rate, 0)
+        self.assertGreater(counter.display_score, 0)
+
     def test_counter_rejects_tiny_vertical_alternation_jitter(self) -> None:
         counter = SixtySevenCounter(cooldown_ms=0)
         almost_level = [

@@ -61,6 +61,7 @@ class CVService:
             backend=hand_tracking_backend,
         )
         self.face_detection = FaceDetectionService(backend=face_tracking_backend)
+        self.enable_hand_detection = True
         self.enable_face_detection = enable_face_detection
         self.mock_events = mock_events
         self._lock = Lock()
@@ -100,6 +101,27 @@ class CVService:
         self._worker.stop()
         self.hand_landmarks.stop()
         self.face_detection.stop()
+
+    def configure_detection(self, *, hands: bool | None = None, faces: bool | None = None) -> None:
+        """Enable only the CV work needed by the active screen.
+
+        On QNX the camera and Pygame loop share a small CPU budget. Running face
+        mesh and hand tracking every CV tick makes 67 Challenge lag even though
+        it only consumes hand positions.
+        """
+        if hands is not None:
+            self.enable_hand_detection = hands
+            if not hands:
+                self.hand_landmarks.stop()
+        if faces is not None:
+            self.enable_face_detection = faces
+
+        with self._lock:
+            self._latest_state = LatestCVState(
+                timestamp_ms=self._latest_state.timestamp_ms,
+                hand_landmarks=self._latest_state.hand_landmarks if self.enable_hand_detection else {},
+                face_landmarks=self._latest_state.face_landmarks if self.enable_face_detection else {},
+            )
 
     def latest_state(self) -> LatestCVState:
         with self._lock:
@@ -205,7 +227,7 @@ class CVService:
         if frame is None:
             return []
 
-        hands = self.hand_landmarks.detect(frame)
+        hands = self.hand_landmarks.detect(frame) if self.enable_hand_detection else []
         hand_assignments = []
         for hand in hands:
             try:
@@ -219,24 +241,30 @@ class CVService:
                 face_assignments.append(assign_face(face, split_x=self.zone_split_x))
             except (TypeError, ValueError, KeyError):
                 continue
-        return [
-            AppEvent.create(
-                EVENT_CV_HAND_LANDMARKS,
-                payload=hand_landmarks_payload(
-                    hands,
-                    frame_id=f"camera-{id(frame)}",
-                    zone_assignment=summarize_zone_assignments(hand_assignments),
-                ),
-            ),
-            AppEvent.create(
-                EVENT_CV_FACE_LANDMARKS,
-                payload=face_landmarks_payload(
-                    assign_face_detections(faces, split_x=self.zone_split_x),
-                    frame_id=f"camera-{id(frame)}",
-                    zone_assignment=summarize_zone_assignments(face_assignments),
-                ),
+        events = []
+        if self.enable_hand_detection:
+            events.append(
+                AppEvent.create(
+                    EVENT_CV_HAND_LANDMARKS,
+                    payload=hand_landmarks_payload(
+                        hands,
+                        frame_id=f"camera-{id(frame)}",
+                        zone_assignment=summarize_zone_assignments(hand_assignments),
+                    ),
+                )
             )
-        ]
+        if self.enable_face_detection:
+            events.append(
+                AppEvent.create(
+                    EVENT_CV_FACE_LANDMARKS,
+                    payload=face_landmarks_payload(
+                        assign_face_detections(faces, split_x=self.zone_split_x),
+                        frame_id=f"camera-{id(frame)}",
+                        zone_assignment=summarize_zone_assignments(face_assignments),
+                    ),
+                )
+            )
+        return events
 
 
 class _CVWorker(ManagedWorker):

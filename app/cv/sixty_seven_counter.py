@@ -26,6 +26,8 @@ class SixtySevenCounter:
     last_motion_sample_ms: int | None = None
     last_motion_distance: float | None = None
     last_motion_alternation: float | None = None
+    last_single_motion_sample_ms: int | None = None
+    last_single_motion_point: tuple[float, float] | None = None
     stale: bool = False
     motion_deadzone: float = 0.18
     score_rate_scale: float = 260.0
@@ -43,6 +45,8 @@ class SixtySevenCounter:
         self.last_motion_sample_ms = None
         self.last_motion_distance = None
         self.last_motion_alternation = None
+        self.last_single_motion_sample_ms = None
+        self.last_single_motion_point = None
         self.stale = False
 
     @property
@@ -97,12 +101,20 @@ class SixtySevenCounter:
         usable = [
             hand
             for hand in hands
-            if float(hand.get("confidence", 1.0)) >= self.min_confidence
+            if self._confidence_ok(hand)
             and isinstance(hand.get("palm_center"), Mapping)
         ]
+        if not usable:
+            usable = [
+                hand
+                for hand in hands
+                if self._motion_confidence_ok(hand)
+                and isinstance(hand.get("palm_center"), Mapping)
+            ]
         if require_both_hands and len(usable) < 2:
             return self.reps
         if len(usable) < 2:
+            self._update_single_hand_motion(usable[0], now_ms=now_ms) if usable else None
             return self.reps
 
         first, second = max(combinations(usable, 2), key=lambda pair: hand_distance(pair[0], pair[1]))
@@ -173,6 +185,53 @@ class SixtySevenCounter:
 
         target_rate = min(self.max_score_rate, (velocity - self.motion_deadzone) * self.score_rate_scale)
         self.score_rate = max(self.score_rate * 0.65, target_rate)
+
+    def _confidence_ok(self, hand: Mapping[str, Any]) -> bool:
+        confidence = float(hand.get("confidence", 1.0))
+        motion_score = float(hand.get("motion_score", 0.0) or 0.0)
+        threshold = self.min_confidence
+        if hand.get("source") == "simple_contour" or motion_score >= 0.10:
+            threshold = max(0.35, threshold - 0.12)
+        return confidence >= threshold
+
+    def _motion_confidence_ok(self, hand: Mapping[str, Any]) -> bool:
+        try:
+            confidence = float(hand.get("confidence", 1.0))
+            motion_score = float(hand.get("motion_score", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return False
+        return confidence >= max(0.32, self.min_confidence - 0.22) and motion_score >= 0.08
+
+    def _update_single_hand_motion(self, hand: Mapping[str, Any], *, now_ms: int) -> None:
+        center = hand.get("palm_center")
+        if not isinstance(center, Mapping):
+            return
+        try:
+            point = (float(center["x"]), float(center["y"]))
+            motion_score = float(hand.get("motion_score", 0.0) or 0.0)
+        except (KeyError, TypeError, ValueError):
+            return
+
+        if self.last_single_motion_sample_ms is None or self.last_single_motion_point is None:
+            self.last_single_motion_sample_ms = now_ms
+            self.last_single_motion_point = point
+            if motion_score >= 0.18:
+                self.score_rate = max(self.score_rate, min(self.max_score_rate * 0.55, motion_score * 900.0))
+            return
+
+        elapsed_seconds = max(0.016, min(0.5, (now_ms - self.last_single_motion_sample_ms) / 1000.0))
+        moved = hypot(point[0] - self.last_single_motion_point[0], point[1] - self.last_single_motion_point[1])
+        velocity = moved / elapsed_seconds
+        energy = velocity + motion_score * 1.8
+        self.last_single_motion_sample_ms = now_ms
+        self.last_single_motion_point = point
+
+        if energy <= 0.16:
+            self.score_rate *= 0.68
+            return
+
+        target_rate = min(self.max_score_rate * 0.78, (energy - 0.16) * self.score_rate_scale * 0.85)
+        self.score_rate = max(self.score_rate * 0.70, target_rate)
 
 
 def hand_distance(first: Mapping[str, Any], second: Mapping[str, Any]) -> float:

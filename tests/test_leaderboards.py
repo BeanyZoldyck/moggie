@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.db import connect, initialize_database
 from app.services.leaderboard_service import LeaderboardService
+from app.services.redis_cache_service import RedisCacheService
 
 
 class FakeCache:
@@ -213,6 +214,14 @@ class LeaderboardServiceTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["display_name"], "Offline Cache")
         self.assertEqual(entries[0]["score"], 77)
+
+    def test_redis_cache_disables_itself_after_failure(self) -> None:
+        cache = RedisCacheService("redis://example.invalid:6379/0")
+
+        cache._handle_failure(RuntimeError("network unavailable"))
+        cache.connect()
+
+        self.assertFalse(cache.available)
 
     def test_all_planned_game_types_are_supported(self) -> None:
         service = LeaderboardService(self.db_path)

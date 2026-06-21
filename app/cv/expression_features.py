@@ -18,7 +18,7 @@ FEATURE_KEYS = (
 
 
 def classify_expression(features: dict[str, float]) -> str:
-    if features.get("tongue_out", 0.0) >= 0.55 and features.get("mouth_open", 0.0) >= 0.30:
+    if features.get("tongue_out", 0.0) >= 0.42 and features.get("mouth_open", 0.0) >= 0.20:
         return "tongue_out"
 
     left_closed = features.get("left_eye_closed", 0.0)

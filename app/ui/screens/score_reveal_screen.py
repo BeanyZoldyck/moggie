@@ -18,13 +18,13 @@ from app.ui.render_utils import (
     draw_bottom_rule,
     draw_button,
     draw_panel,
+    draw_shadowed_text,
     draw_text,
     scaled_asset_image,
 )
+from app.ui.sparkle_layer import SparkleLayer, ensure_sparkle_layer
 from app.util.images import encode_bgr_jpeg
 from app.util.video_playback import LoopingVideoPlayer, download_in_background
-
-from app.ui.sparkle_layer import SparkleLayer
 
 LOGGER = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class ScoreRevealScreen:
         self.replay_player: LoopingVideoPlayer | None = None
         self.replay_error = ""
         self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
-        self.sparkles = None
+        self.sparkles: SparkleLayer | None = None
 
     def on_enter(self, **_: Any) -> None:
         active_job_ids = {
@@ -110,70 +110,16 @@ class ScoreRevealScreen:
             self.sparkles.update(dt_ms)
 
     def handle_app_event(self, event: AppEvent) -> None:
-        if event.type != EVENT_AI_JOB_UPDATE:
-            return
-        job_id = event.payload.get("job_id")
-        if not isinstance(job_id, str):
-            return
-        metadata = event.payload.get("metadata", {})
-        status = event.payload.get("status")
-        self.ai_job_statuses[job_id] = {
-            "status": status,
-            "kind": metadata.get("kind"),
-            "metadata": metadata,
-        }
-        if job_id != self.replay_job_id:
-            return
-        if status == "succeeded":
-            result = metadata.get("result") or {}
-            url = result.get("uri") or result.get("video_url")
-            if isinstance(url, str) and url:
-                LOGGER.info("Recap: generated video %s", url)
-                self.replay_phase = "downloading"
-                download_in_background(url, lambda path, u=url: self._replay_queue.put((path, u)))
-            else:
-                self.replay_phase = "failed"
-                self.replay_error = "no video URL in result"
-        elif status in {"failed", "timed_out"}:
-            self.replay_phase = "failed"
-            self.replay_error = str(metadata.get("error") or status)
-            LOGGER.warning("Recap: job %s (%s)", status, self.replay_error)
+        return None
 
     # ------------------------------------------------------------------
     # Replay generation
     # ------------------------------------------------------------------
     def _can_generate_replay(self) -> bool:
-        config = getattr(self.manager, "config", None)
-        service = getattr(self.manager, "ai_job_service", None)
-        image = getattr(self.manager.state, "reveal_replay_image", None)
-        return bool(
-            config is not None
-            and getattr(config, "enable_pika", False)
-            and service is not None
-            and image is not None
-        )
+        return False
 
     def _start_replay(self) -> None:
-        service = self.manager.ai_job_service
-        game_type = self.manager.state.selected_game_type
-        image = self.manager.state.reveal_replay_image
-        image_bytes = encode_bgr_jpeg(image)
-        if not image_bytes:
-            self.replay_phase = "failed"
-            self.replay_error = "could not encode capture"
-            return
-        payload = {
-            "game_type": game_type,
-            "image_bytes": image_bytes,
-            "image_mime_type": "image/jpeg",
-            "prompt": build_recap_prompt(game_type, self.manager.state.reveal_rows),
-            "negative_prompt": RECAP_NEGATIVE_PROMPT,
-            "has_crop": True,
-        }
-        self.replay_job_id = service.submit(f"{game_type}.recap_video", payload)
-        self.replay_phase = "generating"
-        self.replay_error = ""
-        LOGGER.info("Recap: submitted job %s for %s", self.replay_job_id, game_type)
+        return None
 
     def _drain_replay_queue(self) -> None:
         while True:
@@ -350,9 +296,7 @@ class ScoreRevealScreen:
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-
-        if self.sparkles is None:
-            self.sparkles = SparkleLayer(pygame, width, height, count=120)
+        self.sparkles = ensure_sparkle_layer(pygame, self.sparkles, width, height)
 
         game = game_for_type(self.manager.state.selected_game_type)
         rows = self.manager.state.reveal_rows or [
@@ -363,6 +307,7 @@ class ScoreRevealScreen:
             rows = [{"display_name": "Player 1", "score": None, "label": "READY"}]
 
         winners = [row for row in rows if row.get("winner")]
+        win_asset = "arcade_bg.png"
         if len(winners) == 1:
             player_index = rows.index(winners[0])
             win_asset = "arcade_bg.png"
@@ -377,13 +322,13 @@ class ScoreRevealScreen:
         else:
             self._render_score_rows(pygame, surface, rows, fonts, width)
 
+        self._render_replay_hint(surface, fonts, width, height)
+
         if self.replay_phase == "ready":
             self._render_replay_video(pygame, surface, fonts, width, height)
         elif self.replay_phase in {"generating", "downloading"}:
             self._render_replay_generating(pygame, surface, fonts, width, height)
-        
-        if self.sparkles is not None:
-            self.sparkles.render(surface)
+        self.sparkles.render(surface)
 
     def _render_replay_hint(self, surface: Any, fonts: FontSet, width: int, height: int) -> None:
         nav = "ENTER HOME / L BOARD"
@@ -450,6 +395,15 @@ class ScoreRevealScreen:
             else:
                 text_x = rect.left + 86
             draw_text(surface, f"P{index + 1}", fonts.body, border, (rect.left + 26, rect.top + 18))
+            draw_shadowed_text(
+                surface,
+                str(row.get("display_name") or f"P{index + 1}"),
+                fonts.body,
+                theme.TEXT,
+                (rect.left + 86, rect.top + 30),
+                anchor="midleft",
+                max_width=max(160, rect.width - 330),
+            )
             self._draw_row_details(surface, row, fonts, text_x, rect)
             score = "--" if row.get("score") is None else str(row["score"])
             if row.get("winner"):

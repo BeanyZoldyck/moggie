@@ -7,12 +7,11 @@ from typing import Callable, Mapping
 from app.cv.expression_features import classify_expression
 
 
-SUPPORTED_EXPRESSIONS = ("smile", "surprised", "tongue_out", "wink", "neutral", "look_left", "look_right")
+SUPPORTED_EXPRESSIONS = ("smile", "surprised", "tongue_out", "neutral", "look_left", "look_right")
 EXPRESSION_LABELS = {
     "smile": "SMILE",
     "surprised": "SURPRISE",
     "tongue_out": "TONGUE OUT",
-    "wink": "WINK",
     "neutral": "DEADPAN",
     "look_left": "LOOK LEFT",
     "look_right": "LOOK RIGHT",
@@ -21,7 +20,6 @@ EXPRESSION_GLYPHS = {
     "smile": ":)",
     "surprised": ":O",
     "tongue_out": ":P",
-    "wink": ";)",
     "neutral": ":|",
     "look_left": "L",
     "look_right": "R",
@@ -68,13 +66,7 @@ def _target_surprised(features: Mapping[str, float]) -> bool:
 
 
 def _target_tongue_out(features: Mapping[str, float]) -> bool:
-    return features.get("tongue_out", 0.0) >= 0.65 and features.get("mouth_open", 0.0) >= 0.35
-
-
-def _target_wink(features: Mapping[str, float]) -> bool:
-    left_closed = features.get("left_eye_closed", 0.0)
-    right_closed = features.get("right_eye_closed", 0.0)
-    return max(left_closed, right_closed, features.get("wink", 0.0)) >= 0.60 and abs(left_closed - right_closed) >= 0.22
+    return features.get("tongue_out", 0.0) >= 0.42 and features.get("mouth_open", 0.0) >= 0.20
 
 
 def _target_look_left(features: Mapping[str, float]) -> bool:
@@ -105,7 +97,6 @@ EXPRESSION_PREDICATES: dict[str, ExpressionPredicate] = {
     "smile": _target_smile,
     "surprised": _target_surprised,
     "tongue_out": _target_tongue_out,
-    "wink": _target_wink,
     "neutral": _target_neutral,
     "look_left": _target_look_left,
     "look_right": _target_look_right,

@@ -65,6 +65,7 @@ class ScreenManager:
         from app.ui.screens.home_screen import HomeScreen
         from app.ui.screens.emoji_face_match_screen import EmojiFaceMatchScreen
         from app.ui.screens.idle_attract_screen import IdleAttractScreen
+        from app.ui.screens.instruction_screen import InstructionScreen
         from app.ui.screens.leaderboard_screen import LeaderboardScreen
         from app.ui.screens.mog_mirror_screen import MogMirrorScreen
         from app.ui.screens.player_setup_screen import PlayerSetupScreen
@@ -87,6 +88,7 @@ class ScreenManager:
             "home": HomeScreen(self),
             "idle_attract": IdleAttractScreen(self),
             "player_setup": PlayerSetupScreen(self),
+            "instructions": InstructionScreen(self),
             "emoji_face_match": EmojiFaceMatchScreen(self),
             "mog_mirror": MogMirrorScreen(self),
             "sixty_seven": SixtySevenScreen(self),
@@ -96,6 +98,7 @@ class ScreenManager:
         if initial_screen not in self._screens:
             raise ValueError(f"Unknown screen: {initial_screen}")
         self.current_screen = initial_screen
+        self._configure_cv_for_screen(screen_name=initial_screen)
         self._screens[self.current_screen].on_enter()
 
     @property
@@ -106,6 +109,7 @@ class ScreenManager:
         if screen_name not in self._screens:
             raise ValueError(f"Unknown screen: {screen_name}")
         self.current_screen = screen_name
+        self._configure_cv_for_screen(screen_name=screen_name)
         self._screens[screen_name].on_enter(**kwargs)
 
     def request_quit(self) -> None:
@@ -148,6 +152,16 @@ class ScreenManager:
     def speak_text(self, text: str) -> None:
         if self.voice_service is not None:
             self.voice_service.speak(text)
+
+    def _configure_cv_for_screen(self, *, screen_name: str) -> None:
+        if self.cv_service is None:
+            return
+        if screen_name == "sixty_seven":
+            self.cv_service.configure_detection(hands=True, faces=False)
+        elif screen_name in {"mog_mirror", "emoji_face_match"}:
+            self.cv_service.configure_detection(hands=False, faces=True)
+        else:
+            self.cv_service.configure_detection(hands=False, faces=False)
 
     def _event_ticks(self) -> int:
         try:

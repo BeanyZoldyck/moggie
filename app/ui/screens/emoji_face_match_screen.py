@@ -12,11 +12,10 @@ from app.games.emoji_face_match import (
     label_for_score,
 )
 from app.ui import theme
-from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text, scaled_asset_image
+from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_shadowed_text, draw_text, scaled_asset_image
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.face_overlay_renderer import FaceOverlayRenderer
-
-from app.ui.sparkle_layer import SparkleLayer
+from app.ui.sparkle_layer import SparkleLayer, ensure_sparkle_layer
 
 
 def _pygame() -> Any:
@@ -49,14 +48,15 @@ class EmojiLane:
     feedback: str = "READY"
     feedback_until_ms: int = 0
     last_spawn_ms: int | None = None
+    tongue_latch_until_ms: int = 0
 
 
 class EmojiFaceMatchScreen:
     name = "emoji_face_match"
     countdown_ms = 3_000
     spawn_interval_ms = 1_700
-    travel_ms = 3_000
-    target_progress = 0.74
+    travel_ms = 2_140
+    target_progress = 0.72
 
     def __init__(self, manager: Any) -> None:
         self.manager = manager
@@ -70,7 +70,7 @@ class EmojiFaceMatchScreen:
         self.message = "CENTER FACES IN THE LANES"
         self.manual_override = False
         self.emoji_images = {}
-        self.sparkles = None
+        self.sparkles: SparkleLayer | None = None
 
     def on_enter(self, **_: Any) -> None:
         config = self.manager.config
@@ -115,7 +115,9 @@ class EmojiFaceMatchScreen:
         return None
 
     def update(self, now_ms: int, dt_ms: int) -> None:
-        self._sync_faces()
+        if self.sparkles is not None:
+            self.sparkles.update(dt_ms)
+        self._sync_faces(now_ms)
         if self.finished:
             return
         if self.started_at_ms is None:
@@ -136,18 +138,12 @@ class EmojiFaceMatchScreen:
         if play_ms >= self.manager.config.emoji_round_seconds * 1000:
             self._finish_round()
 
-        if self.sparkles is not None:
-            self.sparkles.update(dt_ms)
-
     def render(self, surface: Any) -> None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-
-        if self.sparkles is None:
-            self.sparkles = SparkleLayer(pygame, width, height, count=120)
-
+        self.sparkles = ensure_sparkle_layer(pygame, self.sparkles, width, height)
         bg = scaled_asset_image(pygame, "emoji_bg.PNG", (width, height))
         if bg is not None:
             surface.blit(bg, (0, 0))
@@ -195,9 +191,7 @@ class EmojiFaceMatchScreen:
             help_text = "SPACE MANUAL START / ESC HOME"
         draw_text(surface, self.message, fonts.small, theme.TEXT_MUTED, (42, height - 32), max_width=width // 2)
         draw_text(surface, help_text, fonts.small, theme.TEXT_MUTED, (width - 42, height - 32), anchor="topright")
-        
-        if self.sparkles is not None:
-            self.sparkles.render(surface)
+        self.sparkles.render(surface)
 
     def _render_lane(self, pygame: Any, surface: Any, rect: Any, lane: EmojiLane, index: int, now_ms: int) -> None:
         assert self.fonts is not None
@@ -213,6 +207,15 @@ class EmojiFaceMatchScreen:
         else:
             streak_y = rect.bottom - 34
 
+        draw_shadowed_text(
+            surface,
+            lane.name,
+            self.fonts.body,
+            color,
+            (rect.left + 128, rect.top + 18),
+            anchor="midleft",
+            max_width=180,
+        )
         draw_text(
             surface,
             f"STREAK {lane.streak}",
@@ -271,7 +274,7 @@ class EmojiFaceMatchScreen:
             if lane.feedback_until_ms > now_ms:
                 draw_text(surface, lane.feedback, self.fonts.small, feedback_color, (rect.right - 150, rect.bottom - 34), anchor="topright")
 
-    def _sync_faces(self) -> None:
+    def _sync_faces(self, now_ms: int | None = None) -> None:
         faces = self._faces()
         faces_by_zone = {face.get("zone"): face for face in faces}
         mode = self.manager.config.emoji_mode
@@ -280,6 +283,8 @@ class EmojiFaceMatchScreen:
                 lane.face = faces[0]
             else:
                 lane.face = faces_by_zone.get(lane.zone)
+            if now_ms is not None:
+                self._update_expression_latches(lane, now_ms)
         if self.started_at_ms is None:
             self.message = "READY TO START" if self._ready_to_start() else self._ready_message()
 
@@ -321,7 +326,7 @@ class EmojiFaceMatchScreen:
         for target in lane.targets:
             if target.scored or now_ms - target.spawn_ms < scoring_ms:
                 continue
-            features = extract_expression_features(lane.face)
+            features = self._features_for_lane(lane, now_ms)
             result = evaluate_match(target.expression, features)
             target.scored = True
             target.hit = result.hit
@@ -336,6 +341,19 @@ class EmojiFaceMatchScreen:
                 lane.streak = 0
                 lane.feedback = f"MISS {expression_label(result.target)}"
             lane.feedback_until_ms = now_ms + 750
+
+    def _update_expression_latches(self, lane: EmojiLane, now_ms: int) -> None:
+        features = extract_expression_features(lane.face)
+        if features.get("tongue_out", 0.0) >= 0.34 and features.get("mouth_open", 0.0) >= 0.16:
+            lane.tongue_latch_until_ms = now_ms + 550
+
+    def _features_for_lane(self, lane: EmojiLane, now_ms: int) -> dict[str, float]:
+        features = extract_expression_features(lane.face)
+        if now_ms <= lane.tongue_latch_until_ms:
+            features["tongue_out"] = max(features.get("tongue_out", 0.0), 0.50)
+            features["mouth_open"] = max(features.get("mouth_open", 0.0), 0.24)
+            features["neutral"] = min(features.get("neutral", 1.0), 0.25)
+        return features
 
     def _render_face_fx(self, pygame: Any, surface: Any, rect: Any, *, now_ms: int) -> None:
         for lane in self.lanes:

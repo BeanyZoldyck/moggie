@@ -127,4 +127,13 @@ class HandLandmarkService:
                 }
             )
 
-        return assign_hand_detections(raw_hands, split_x=self.split_x)
+        hands = assign_hand_detections(raw_hands, split_x=self.split_x)
+        if hands:
+            return hands
+
+        # QNX MediaPipe Hands can initialize but still miss the Pi camera feed
+        # entirely under booth lighting. Keep MediaPipe as the primary backend,
+        # but avoid a blank 67 screen by falling back only on zero-detection frames.
+        if not self._fallback.available:
+            self._fallback.start()
+        return self._fallback.detect(frame_bgr)

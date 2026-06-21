@@ -5,10 +5,10 @@ from typing import Any
 
 from app.games.mog_mirror import crop_upper_body, label_for_aura, score_aura
 from app.ui import theme
-from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text, scaled_asset_image
+from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_shadowed_text, draw_text, scaled_asset_image
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.face_overlay_renderer import FaceOverlayRenderer
-from app.ui.sparkle_layer import SparkleLayer
+from app.ui.sparkle_layer import SparkleLayer, ensure_sparkle_layer
 
 
 def _pygame() -> Any:
@@ -32,7 +32,10 @@ class MirrorLane:
     display_target_index: int = -1
     last_face_center: tuple[float, float] | None = None
     last_face_box_area: float | None = None
+    last_yaw_proxy: float | None = None
     movement_energy: float = 0.0
+    turn_score_bonus: float = 0.0
+    turn_count: int = 0
 
 
 class MogMirrorScreen:
@@ -53,7 +56,7 @@ class MogMirrorScreen:
         self.message = "CENTER BOTH FACES IN THEIR LANES"
         self.manual_override = False
         self._entered_at_ms: int | None = None
-        self.sparkles = None
+        self.sparkles: SparkleLayer | None = None
 
     def on_enter(self, **_: Any) -> None:
         names = self.manager.state.player_names or ["Player 1", "Player 2"]
@@ -95,6 +98,8 @@ class MogMirrorScreen:
     def update(self, now_ms: int, dt_ms: int) -> None:
         if self._entered_at_ms is None:
             self._entered_at_ms = now_ms
+        if self.sparkles is not None:
+            self.sparkles.update(dt_ms)
         self._sync_faces()
         if self.finished:
             return
@@ -104,16 +109,13 @@ class MogMirrorScreen:
         self._tick_display_scores(now_ms, dt_ms)
         if now_ms - self.started_at_ms >= self.live_score_duration_ms:
             self._finish_round()
-        if self.sparkles is not None:
-            self.sparkles.update(dt_ms)
 
     def render(self, surface: Any) -> None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-        if self.sparkles is None:
-            self.sparkles = SparkleLayer(pygame, width, height, count=120)
+        self.sparkles = ensure_sparkle_layer(pygame, self.sparkles, width, height)
         bg = scaled_asset_image(pygame, "mog_mirror_bg.png", (width, height))
         if bg is not None:
             surface.blit(bg, (0, 0))
@@ -164,6 +166,14 @@ class MogMirrorScreen:
                 color,
                 now_ms,
             )
+            draw_shadowed_text(
+                surface,
+                lane.name,
+                fonts.body,
+                color,
+                (rect.centerx, rect.top - 20),
+                max_width=rect.width + 80,
+            )
 
         countdown = self._countdown_label()
         if countdown is not None:
@@ -175,8 +185,7 @@ class MogMirrorScreen:
             help_text = "SPACE MANUAL CAPTURE / ESC HOME"
         draw_text(surface, self.message, fonts.small, theme.TEXT_MUTED, (42, height - 32), max_width=width // 2)
         draw_text(surface, help_text, fonts.small, theme.TEXT_MUTED, (width - 42, height - 32), anchor="topright")
-        if self.sparkles is not None:
-            self.sparkles.render(surface)
+        self.sparkles.render(surface)
 
         ##if self.phase == PHASE_GENERATING:
             ##self._render_generating_overlay(surface, width, height)
@@ -440,7 +449,7 @@ class MogMirrorScreen:
                 and now_ms - lane.live_score_updated_at_ms < self.live_score_update_interval_ms
             ):
                 continue
-            lane.live_score = score_aura(
+            base_score = score_aura(
                 session_id=self.session_id,
                 display_name=lane.name,
                 zone=lane.zone,
@@ -448,9 +457,10 @@ class MogMirrorScreen:
                 manual_override=self.manual_override,
                 sample_ms=now_ms - self.started_at_ms if self.started_at_ms is not None else now_ms,
             )
+            self._update_lane_movement(lane, now_ms)
+            lane.live_score = max(1, min(100, round(base_score + lane.turn_score_bonus)))
             lane.live_score_samples.append(lane.live_score)
             lane.live_score_updated_at_ms = now_ms
-            self._update_lane_movement(lane)
             target_index = self._display_target_bucket(now_ms)
             if force or lane.display_target_index != target_index:
                 self._set_display_target(lane, now_ms)
@@ -458,7 +468,7 @@ class MogMirrorScreen:
     def _set_display_target(self, lane: MirrorLane, now_ms: int) -> None:
         aura = 45 if lane.live_score is None else lane.live_score
         face_bonus = 6 if lane.face is not None else -12
-        movement_bonus = lane.movement_energy * 30.0
+        movement_bonus = lane.movement_energy * 26.0 + lane.turn_score_bonus * 0.85
         target_index = self._display_target_bucket(now_ms)
         jitter = self._target_jitter(lane, target_index)
         target = max(1.0, min(100.0, aura * 0.72 + 14.0 + face_bonus + movement_bonus + jitter))
@@ -496,11 +506,12 @@ class MogMirrorScreen:
         seed_text = f"{self.session_id or 'mirror'}:{lane.name}:{lane.zone}:{target_index}"
         return sum(ord(char) for char in seed_text) % 17 - 8
 
-    def _update_lane_movement(self, lane: MirrorLane) -> None:
+    def _update_lane_movement(self, lane: MirrorLane, now_ms: int | None = None) -> None:
         face = lane.face
         if face is None:
             lane.last_face_center = None
             lane.last_face_box_area = None
+            lane.last_yaw_proxy = None
             lane.movement_energy *= 0.65
             return
         center = face.get("center")
@@ -518,9 +529,44 @@ class MogMirrorScreen:
             instant += (dx + dy) * 7.0
         if lane.last_face_box_area is not None:
             instant += abs(area - lane.last_face_box_area) * 12.0
-        lane.movement_energy = max(lane.movement_energy * 0.65, min(1.0, instant))
+        yaw_proxy = self._face_yaw_proxy(face)
+        if yaw_proxy is not None and lane.last_yaw_proxy is not None:
+            yaw_delta = abs(yaw_proxy - lane.last_yaw_proxy)
+            instant += yaw_delta * 5.5
+            crossed_center = (
+                abs(yaw_proxy) >= 0.035
+                and abs(lane.last_yaw_proxy) >= 0.035
+                and (yaw_proxy < 0) != (lane.last_yaw_proxy < 0)
+            )
+            if yaw_delta >= 0.045 or crossed_center:
+                lane.turn_count += 1
+                lane.turn_score_bonus = min(
+                    38.0,
+                    lane.turn_score_bonus + 7.5 + min(4.5, yaw_delta * 24.0) + (2.5 if crossed_center else 0.0),
+                )
+                lane.display_pulse_until_ms = (now_ms or 0) + 360
+        lane.movement_energy = max(lane.movement_energy * 0.62, min(1.0, instant))
         lane.last_face_center = (x, y)
         lane.last_face_box_area = area
+        lane.last_yaw_proxy = yaw_proxy
+
+    def _face_yaw_proxy(self, face: dict[str, Any]) -> float | None:
+        bbox = face.get("bbox") if isinstance(face.get("bbox"), dict) else {}
+        center = face.get("center") if isinstance(face.get("center"), dict) else {}
+        face_width = float(bbox.get("width", 0.0))
+        if face_width <= 0.001:
+            return None
+        landmarks = face.get("landmarks") if isinstance(face.get("landmarks"), dict) else {}
+        nose_tip = landmarks.get("nose_tip") if isinstance(landmarks.get("nose_tip"), dict) else None
+        left_cheek = landmarks.get("left_cheek") if isinstance(landmarks.get("left_cheek"), dict) else None
+        right_cheek = landmarks.get("right_cheek") if isinstance(landmarks.get("right_cheek"), dict) else None
+        if nose_tip is not None and left_cheek is not None and right_cheek is not None:
+            cheek_mid_x = (float(left_cheek.get("x", 0.0)) + float(right_cheek.get("x", 0.0))) / 2.0
+            return max(-1.0, min(1.0, (float(nose_tip.get("x", cheek_mid_x)) - cheek_mid_x) / face_width))
+        if nose_tip is not None:
+            center_x = float(center.get("x", float(bbox.get("x", 0.0)) + face_width / 2.0))
+            return max(-1.0, min(1.0, (float(nose_tip.get("x", center_x)) - center_x) / face_width))
+        return None
 
     def _render_mirror_fx(self, pygame: Any, surface: Any, rect: Any, faces: list[dict[str, Any]], now_ms: int) -> None:
         lane_by_zone = {lane.zone: lane for lane in self.lanes}
@@ -657,7 +703,9 @@ class MogMirrorScreen:
         )
         self.manager.state.reveal_rows = rows
         self.manager.state.last_session_id = self.session_id
-        self.manager.speak_voiceline("mog_mirror", "end")
+        speak = getattr(self.manager, "speak_voiceline", None)
+        if speak is not None:
+            speak("mog_mirror", "end")
         self.manager.go_to("score_reveal")
 
     def _average_live_score(self, lane: MirrorLane) -> int | None:

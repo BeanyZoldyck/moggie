@@ -15,8 +15,7 @@ from app.ui.render_utils import (
     draw_text,
     scaled_asset_image
 )
-
-from app.ui.sparkle_layer import SparkleLayer
+from app.ui.sparkle_layer import SparkleLayer, ensure_sparkle_layer
 
 
 def _pygame() -> Any:
@@ -33,14 +32,19 @@ class PlayerSetupScreen:
         self.fonts: FontSet | None = None
         self.active_field = 0
         self.values: list[str] = []
+        self.edited_fields: list[bool] = []
         self.cursor_visible = True
         self._last_cursor_flip_ms = 0
-        self.sparkles = None
+        self.sparkles: SparkleLayer | None = None
 
-    def on_enter(self, **_: Any) -> None:
+    def on_enter(self, preserve_values: bool = False, **_: Any) -> None:
         count = player_count_for_game(self.manager.state.selected_game_type, self.manager.config)
-        existing = self.manager.state.player_names[:count]
-        self.values = [existing[index] if index < len(existing) else "" for index in range(count)]
+        if preserve_values and len(self.values) == count and len(self.edited_fields) == count:
+            self.active_field = min(self.active_field, max(0, count - 1))
+            self.cursor_visible = True
+            return
+        self.values = [""] * count
+        self.edited_fields = [False] * count
         self.active_field = 0
         self.cursor_visible = True
         self._last_cursor_flip_ms = 0
@@ -51,6 +55,9 @@ class PlayerSetupScreen:
             return
         if event.key == pygame.K_ESCAPE:
             self.manager.go_to("home")
+            return
+        if event.key == pygame.K_i:
+            self.manager.go_to("instructions", return_screen="player_setup")
             return
         if event.key in {pygame.K_TAB, pygame.K_DOWN}:
             self._move_field(1)
@@ -66,11 +73,17 @@ class PlayerSetupScreen:
             return
         if event.key == pygame.K_BACKSPACE:
             self.values[self.active_field] = self.values[self.active_field][:-1]
+            self.edited_fields[self.active_field] = True
             return
 
         text = getattr(event, "unicode", "")
-        if is_printable_text(text) and len(self.values[self.active_field]) < MAX_NAME_LENGTH:
-            self.values[self.active_field] += text
+        if is_printable_text(text):
+            if not self.edited_fields[self.active_field]:
+                self.values[self.active_field] = text
+                self.edited_fields[self.active_field] = True
+                return
+            if len(self.values[self.active_field]) < MAX_NAME_LENGTH:
+                self.values[self.active_field] += text
 
     def update(self, now_ms: int, dt_ms: int) -> None:
         if now_ms - self._last_cursor_flip_ms > 430:
@@ -84,9 +97,8 @@ class PlayerSetupScreen:
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-        if self.sparkles is None:
-            self.sparkles = SparkleLayer(pygame, width, height, count=120)
-        bg = scaled_asset_image(pygame, "player_name_bg.png", (width, height))
+        self.sparkles = ensure_sparkle_layer(pygame, self.sparkles, width, height)
+        bg = scaled_asset_image(pygame, "player_name_bg.PNG", (width, height))
         if bg is not None:
             surface.blit(bg, (0, 0))
         else:
@@ -119,7 +131,7 @@ class PlayerSetupScreen:
             border = game.accent if selected else theme.BORDER
             if len(self.values) == 1:
                 zone_label = "CENTER ZONE"
-            fallback = f"Player {index + 1}"
+            fallback = f"P{index + 1}"
             value = raw_value if raw_value else fallback
             color = theme.TEXT if raw_value else theme.TEXT_MUTED
             value_rect = draw_text(
@@ -142,8 +154,8 @@ class PlayerSetupScreen:
 
         draw_bottom_rule(pygame, surface, height - 44, width)
         draw_text(surface, "MOGGIE", fonts.small, theme.TEXT_MUTED, (48, height - 32))
-        if self.sparkles is not None:
-            self.sparkles.render(surface)
+        draw_text(surface, "I INSTRUCTIONS", fonts.small, theme.TEXT_MUTED, (width - 48, height - 32), anchor="topright")
+        self.sparkles.render(surface)
 
     def _move_field(self, direction: int) -> None:
         self.active_field = (self.active_field + direction) % len(self.values)
@@ -151,7 +163,7 @@ class PlayerSetupScreen:
 
     def _submit(self) -> None:
         names = [
-            normalize_name(value, fallback=f"Player {index + 1}")
+            normalize_name(value, fallback=f"P{index + 1}")
             for index, value in enumerate(self.values)
         ]
         self.manager.state.player_names = names

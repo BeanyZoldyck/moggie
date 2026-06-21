@@ -2,6 +2,7 @@ import unittest
 
 from app.cv.expression_features import classify_expression, extract_expression_features
 from app.games.emoji_face_match import SUPPORTED_EXPRESSIONS, build_expression_sequence, evaluate_match, expression_glyph
+from app.ui.screens.emoji_face_match_screen import EmojiFaceMatchScreen
 
 
 class ExpressionFeatureTests(unittest.TestCase):
@@ -115,6 +116,7 @@ class ExpressionFeatureTests(unittest.TestCase):
     def test_tongue_out_requires_tongue_and_open_mouth(self) -> None:
         self.assertFalse(evaluate_match("tongue_out", {"tongue_out": 0.9, "mouth_open": 0.1}).hit)
         self.assertTrue(evaluate_match("tongue_out", {"tongue_out": 0.9, "mouth_open": 0.5}).hit)
+        self.assertTrue(evaluate_match("tongue_out", {"tongue_out": 0.45, "mouth_open": 0.24}).hit)
 
     def test_expression_sequence_is_deterministic_without_immediate_repeats(self) -> None:
         sequence = build_expression_sequence("session-1", 12)
@@ -122,9 +124,13 @@ class ExpressionFeatureTests(unittest.TestCase):
         self.assertEqual(sequence, build_expression_sequence("session-1", 12))
         self.assertTrue(all(left != right for left, right in zip(sequence, sequence[1:])))
         self.assertNotIn("eyes_closed", sequence)
+        self.assertNotIn("wink", sequence)
         self.assertTrue(set(sequence) <= set(SUPPORTED_EXPRESSIONS))
         self.assertEqual(expression_glyph("look_left"), "L")
         self.assertEqual(expression_glyph("look_right"), "R")
+
+    def test_emoji_targets_travel_about_forty_percent_faster(self) -> None:
+        self.assertEqual(EmojiFaceMatchScreen.travel_ms, 2_140)
 
 
 if __name__ == "__main__":

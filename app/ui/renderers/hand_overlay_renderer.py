@@ -26,6 +26,7 @@ class HandOverlayRenderer:
         stale: bool = False,
         split_x: float = 0.5,
         point_mapper: Any | None = None,
+        show_trails: bool = True,
     ) -> None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
@@ -37,8 +38,6 @@ class HandOverlayRenderer:
 
         active_keys: set[str] = set()
         for hand in hands:
-            if str(hand.get("source", "")).startswith("simple_"):
-                continue
             palm = hand.get("palm_center")
             if not isinstance(palm, Mapping):
                 continue
@@ -61,7 +60,10 @@ class HandOverlayRenderer:
         glow = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
         for key, trail in self._trails.items():
             color = self._trail_color(key)
-            self._draw_trail(pygame, glow, trail, color, now_ms)
+            if show_trails:
+                self._draw_trail(pygame, glow, trail, color, now_ms)
+            elif trail:
+                self._draw_current_dot(pygame, glow, trail[-1][0], color)
         surface.blit(glow, (0, 0))
 
         if stale:
@@ -125,6 +127,15 @@ class HandOverlayRenderer:
                 pygame.draw.line(surface, (*color, max(0, min(255, alpha))), start, end, width)
 
         current = trail[-1][0]
+        self._draw_current_dot(pygame, surface, current, color)
+
+    def _draw_current_dot(
+        self,
+        pygame: Any,
+        surface: Any,
+        current: tuple[int, int],
+        color: tuple[int, int, int],
+    ) -> None:
         pygame.draw.circle(surface, (*color, 72), current, 34)
         pygame.draw.circle(surface, (*color, 150), current, 24)
         pygame.draw.circle(surface, (*color, 255), current, 15)

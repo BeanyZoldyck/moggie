@@ -216,12 +216,12 @@ def _tongue_out_score(frame_bgr: Any | None, cv2: Any | None, landmarks: dict[st
     if mouth_w <= 0.01:
         return 0.0
     mouth_open = abs(lower_lip["y"] - upper_lip["y"])
-    if mouth_open / mouth_w < 0.16:
+    if mouth_open / mouth_w < 0.11:
         return 0.0
-    x1 = int(max(0, (min(mouth_left["x"], mouth_right["x"]) - mouth_w * 0.12) * frame_w))
-    x2 = int(min(frame_w, (max(mouth_left["x"], mouth_right["x"]) + mouth_w * 0.12) * frame_w))
-    y1 = int(max(0, (lower_lip["y"] + mouth_w * 0.03) * frame_h))
-    y2 = int(min(frame_h, (lower_lip["y"] + mouth_w * 0.42) * frame_h))
+    x1 = int(max(0, (min(mouth_left["x"], mouth_right["x"]) - mouth_w * 0.18) * frame_w))
+    x2 = int(min(frame_w, (max(mouth_left["x"], mouth_right["x"]) + mouth_w * 0.18) * frame_w))
+    y1 = int(max(0, (lower_lip["y"] - mouth_w * 0.02) * frame_h))
+    y2 = int(min(frame_h, (lower_lip["y"] + mouth_w * 0.58) * frame_h))
     if x2 <= x1 or y2 <= y1:
         return 0.0
 
@@ -229,7 +229,9 @@ def _tongue_out_score(frame_bgr: Any | None, cv2: Any | None, landmarks: dict[st
     if roi.size == 0:
         return 0.0
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    red_low = cv2.inRange(hsv, (0, 80, 80), (12, 255, 255))
-    red_high = cv2.inRange(hsv, (168, 80, 80), (179, 255, 255))
-    red_ratio = float(cv2.countNonZero(red_low | red_high)) / float(roi.shape[0] * roi.shape[1])
-    return max(0.0, min(1.0, (red_ratio - 0.12) / 0.18))
+    red_low = cv2.inRange(hsv, (0, 45, 55), (16, 255, 255))
+    red_high = cv2.inRange(hsv, (160, 45, 55), (179, 255, 255))
+    pink = cv2.inRange(hsv, (135, 35, 60), (179, 255, 255))
+    warm = cv2.inRange(hsv, (0, 30, 65), (24, 210, 255))
+    color_ratio = float(cv2.countNonZero(red_low | red_high | pink | warm)) / float(roi.shape[0] * roi.shape[1])
+    return max(0.0, min(1.0, (color_ratio - 0.055) / 0.16))

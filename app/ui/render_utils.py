@@ -146,6 +146,31 @@ def draw_text(
     return rect
 
 
+def draw_shadowed_text(
+    surface: Any,
+    text: str,
+    font: Any,
+    color: tuple[int, int, int],
+    position: tuple[int, int],
+    *,
+    anchor: str = "center",
+    max_width: int | None = None,
+    shadow_color: tuple[int, int, int] = (8, 7, 9),
+    shadow_offset: tuple[int, int] = (2, 2),
+) -> Any:
+    rendered_text = _fit_text(text, font, max_width) if max_width else text
+    shadow = font.render(rendered_text, True, shadow_color)
+    shadow_rect = shadow.get_rect()
+    setattr(shadow_rect, anchor, (position[0] + shadow_offset[0], position[1] + shadow_offset[1]))
+    surface.blit(shadow, shadow_rect)
+
+    image = font.render(rendered_text, True, color)
+    rect = image.get_rect()
+    setattr(rect, anchor, position)
+    surface.blit(image, rect)
+    return rect
+
+
 def draw_wrapped_text(
     surface: Any,
     text: str,

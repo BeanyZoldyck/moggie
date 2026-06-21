@@ -31,7 +31,7 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config.cv_enable_face_detection)
         self.assertEqual(config.hand_tracking_backend, "mediapipe")
         self.assertEqual(config.face_tracking_backend, "mediapipe")
-        self.assertTrue(config.idle_attract_enabled)
+        self.assertFalse(config.idle_attract_enabled)
         self.assertEqual(config.idle_timeout_seconds, 90)
         self.assertEqual(config.attract_rotation_seconds, 8)
         self.assertFalse(config.enable_s3_video_storage)

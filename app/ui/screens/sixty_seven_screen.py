@@ -6,11 +6,10 @@ from typing import Any
 from app.core.app_event import current_time_ms
 from app.cv.sixty_seven_counter import SixtySevenCounter
 from app.ui import theme
-from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text, scaled_asset_image
+from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_shadowed_text, draw_text, scaled_asset_image
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.hand_overlay_renderer import HandOverlayRenderer
-
-from app.ui.sparkle_layer import SparkleLayer
+from app.ui.sparkle_layer import SparkleLayer, ensure_sparkle_layer
 
 
 def _pygame() -> Any:
@@ -42,7 +41,7 @@ class SixtySevenScreen:
         self.session_id: str | None = None
         self.started_at_ms: int | None = None
         self.finished = False
-        self.sparkles = None
+        self.sparkles: SparkleLayer | None = None
 
     def on_enter(self, **_: Any) -> None:
         config = self.manager.config
@@ -92,6 +91,8 @@ class SixtySevenScreen:
     def update(self, now_ms: int, dt_ms: int) -> None:
         if self.started_at_ms is None:
             self.started_at_ms = now_ms
+        if self.sparkles is not None:
+            self.sparkles.update(dt_ms)
         if self.finished:
             return
 
@@ -103,11 +104,7 @@ class SixtySevenScreen:
         hands = []
         frame_timestamp_ms = None
         if state is not None:
-            hands = [
-                hand
-                for hand in state.hand_landmarks.get("hands", [])
-                if not str(hand.get("source", "")).startswith("simple_")
-            ]
+            hands = list(state.hand_landmarks.get("hands", []))
             frame_timestamp_ms = state.timestamp_ms
 
         event_now_ms = current_time_ms()
@@ -128,17 +125,13 @@ class SixtySevenScreen:
 
         if elapsed_ms >= self.countdown_ms + self.manager.config.sixty_seven_round_seconds * 1000:
             self._finish_round()
-        
-        if self.sparkles is not None:
-            self.sparkles.update(dt_ms)
 
     def render(self, surface: Any) -> None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-        if self.sparkles is None:
-            self.sparkles = SparkleLayer(pygame, width, height, count=120)
+        self.sparkles = ensure_sparkle_layer(pygame, self.sparkles, width, height)
         bg = scaled_asset_image(pygame, "sixseven_bg.PNG", (width, height))
         if bg is not None:
             surface.blit(bg, (0, 0))
@@ -161,11 +154,7 @@ class SixtySevenScreen:
             split_pane=True,
         )
         state = self.manager.cv_service.latest_state() if self.manager.cv_service is not None else None
-        hands = [
-            hand
-            for hand in state.hand_landmarks.get("hands", [])
-            if not str(hand.get("source", "")).startswith("simple_")
-        ] if state is not None else []
+        hands = list(state.hand_landmarks.get("hands", [])) if state is not None else []
         stale = any(lane.counter.stale for lane in self.lanes)
         effect_rect = camera_rect.inflate(-6, -6)
         now_ms = pygame.time.get_ticks()
@@ -177,6 +166,7 @@ class SixtySevenScreen:
             stale=stale,
             split_x=self.manager.config.zone_split_x,
             point_mapper=self.preview_renderer.point_to_screen,
+            show_trails=False,
         )
 
         panel_y = height - 174
@@ -187,6 +177,14 @@ class SixtySevenScreen:
             else:
                 rect = pygame.Rect(width - 390, height - 210, 220, 80)
             color = theme.PLAYER_COLORS[index % len(theme.PLAYER_COLORS)]
+            draw_shadowed_text(
+                surface,
+                lane.name,
+                fonts.body,
+                color,
+                (rect.centerx, rect.top - 18),
+                max_width=rect.width + 64,
+            )
             self._draw_score(pygame, surface, rect, lane, fonts)
 
         if self._countdown_label():
@@ -203,8 +201,7 @@ class SixtySevenScreen:
 
         draw_bottom_rule(pygame, surface, height - 44, width)
         draw_text(surface, "SPACE STARTS / ESC HOME", fonts.small, theme.TEXT_MUTED, (42, height - 32))
-        if self.sparkles is not None:
-            self.sparkles.render(surface)
+        self.sparkles.render(surface)
 
     def _clock_label(self) -> str:
         if self.started_at_ms is None:

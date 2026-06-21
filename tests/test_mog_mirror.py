@@ -138,6 +138,27 @@ class MogMirrorTests(unittest.TestCase):
         self.assertGreater(moving.movement_energy, 0)
         self.assertGreater(moving.display_score_target, still.display_score_target)
 
+    def test_four_face_turns_consistently_scores_eighty_plus(self) -> None:
+        screen = MogMirrorScreen(SimpleNamespace())
+        screen.session_id = "session-turns"
+        screen.started_at_ms = 0
+        lane = MirrorLane(name="Mina", zone="p1")
+        screen.lanes = [lane]
+
+        for now_ms, offset in [
+            (0, 0.0),
+            (500, 0.09),
+            (1_000, -0.09),
+            (1_500, 0.09),
+            (2_000, -0.09),
+            (2_500, 0.09),
+        ]:
+            lane.face = _mog_face(offset=offset)
+            screen._update_live_scores(now_ms, force=True)
+
+        self.assertGreaterEqual(lane.turn_count, 4)
+        self.assertGreaterEqual(screen._average_live_score(lane), 80)
+
     def test_final_score_uses_average_live_score(self) -> None:
         screen = MogMirrorScreen(SimpleNamespace())
         lane = MirrorLane(name="Mina", zone="p1", live_score=90)

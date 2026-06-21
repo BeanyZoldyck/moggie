@@ -88,6 +88,10 @@ class ShellRuntimeTests(unittest.TestCase):
         self.manager.go_to("idle_attract")
         self.manager.update(10_000, 16)
         self.manager.render(surface)
+        for game_type in ("mog_mirror", "sixty_seven", "emoji_face_match"):
+            self.manager.state.selected_game_type = game_type
+            self.manager.go_to("instructions")
+            self.manager.render(surface)
 
     def _key(self, key: int, unicode: str = "") -> Any:
         return self.pygame.event.Event(self.pygame.KEYDOWN, key=key, unicode=unicode, mod=0)

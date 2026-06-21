@@ -166,94 +166,17 @@ class RecapPromptTests(unittest.TestCase):
         self.assertIn("600", prompt)
 
 
-class ScoreRevealReplayTests(unittest.TestCase):
-    def test_can_generate_requires_pika_and_image(self) -> None:
-        self.assertTrue(_make_screen()._can_generate_replay())
+class ScoreRevealReplayDisabledTests(unittest.TestCase):
+    def test_replay_generation_is_disabled_for_qnx_testing_build(self) -> None:
+        self.assertFalse(_make_screen()._can_generate_replay())
         self.assertFalse(_make_screen(enable_pika=False)._can_generate_replay())
 
-    def test_can_generate_works_for_all_games(self) -> None:
-        for game_type in ("mog_mirror", "sixty_seven", "emoji_face_match"):
-            with self.subTest(game_type=game_type):
-                self.assertTrue(_make_screen(game_type=game_type)._can_generate_replay())
-
-    def test_start_replay_submits_game_typed_kind(self) -> None:
-        for game_type in ("mog_mirror", "sixty_seven", "emoji_face_match"):
-            with self.subTest(game_type=game_type):
-                screen = _make_screen(game_type=game_type)
-                with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
-                    screen._start_replay()
-                kind, payload = screen.manager.ai_job_service.submitted[0]
-                self.assertEqual(kind, f"{game_type}.recap_video")
-                self.assertEqual(payload["image_bytes"], b"jpeg")
-                self.assertIn("negative_prompt", payload)
-                self.assertEqual(screen.replay_phase, "generating")
-
-    def test_mog_mirror_prompt_is_result_aware(self) -> None:
-        screen = _make_screen(game_type="mog_mirror")
-        with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
-            screen._start_replay()
-        _, payload = screen.manager.ai_job_service.submitted[0]
-        self.assertIn("Mina", payload["prompt"])
-
-    def test_succeeded_event_downloads_and_becomes_ready(self) -> None:
+    def test_start_replay_does_not_submit_jobs(self) -> None:
         screen = _make_screen()
-        with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
-            screen._start_replay()
-        with patch("app.ui.screens.score_reveal_screen.download_in_background", new=_sync_download), patch(
-            "app.ui.screens.score_reveal_screen.LoopingVideoPlayer", new=FakePlayer
-        ):
-            screen.handle_app_event(_succeeded("job-1"))
-            screen.update(0, 0)
-        self.assertEqual(screen.replay_phase, "ready")
-        self.assertIsInstance(screen.replay_player, FakePlayer)
-        self.assertFalse(screen.social_prompt_started)
 
-    def test_t_key_starts_social_prompt_when_replay_ready(self) -> None:
-        screen = _make_screen()
-        voice_agent = FakeVoiceAgentService()
-        screen.manager.voice_agent_service = voice_agent
-        screen.manager.speak_text = lambda text: None
-        fake_pygame = SimpleNamespace(
-            K_t=116,
-            K_g=103,
-            K_x=120,
-            K_y=121,
-            K_n=110,
-            K_ESCAPE=27,
-            K_h=104,
-            K_RETURN=13,
-            K_KP_ENTER=1073741912,
-            K_SPACE=32,
-            K_l=108,
-            KEYDOWN=2,
-        )
-        with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
-            screen._start_replay()
-        with patch("app.ui.screens.score_reveal_screen.download_in_background", new=_sync_download), patch(
-            "app.ui.screens.score_reveal_screen.LoopingVideoPlayer", new=FakePlayer
-        ):
-            screen.handle_app_event(_succeeded("job-1"))
-            screen.update(0, 0)
-        with patch("app.ui.screens.score_reveal_screen._pygame", return_value=fake_pygame):
-            screen.handle_event(SimpleNamespace(type=fake_pygame.KEYDOWN, key=fake_pygame.K_t))
-        self.assertTrue(screen.social_prompt_started)
-        self.assertEqual(len(voice_agent.contexts), 1)
-        self.assertEqual(voice_agent.contexts[0].recap_url, "https://v3.fal.media/files/recap.mp4")
+        screen._start_replay()
 
-    def test_failed_event_sets_failed_phase(self) -> None:
-        screen = _make_screen()
-        with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
-            screen._start_replay()
-        screen.handle_app_event(_failed("job-1"))
-        self.assertEqual(screen.replay_phase, "failed")
-        self.assertIn("boom", screen.replay_error)
-
-    def test_unrelated_job_event_does_not_change_replay_phase(self) -> None:
-        screen = _make_screen()
-        with patch("app.ui.screens.score_reveal_screen.encode_bgr_jpeg", return_value=b"jpeg"):
-            screen._start_replay()
-        screen.handle_app_event(_succeeded("some-other-job"))
-        self.assertEqual(screen.replay_phase, "generating")
+        self.assertEqual(screen.manager.ai_job_service.submitted, [])
 
     def test_save_replay_uploads_to_s3_and_records_asset(self) -> None:
         screen = _make_screen()

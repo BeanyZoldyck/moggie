@@ -19,9 +19,10 @@ class RedisCacheService:
         self.enabled = enabled
         self._client: Any | None = None
         self._warned_failure = False
+        self._disabled_after_failure = False
 
     def connect(self) -> None:
-        if not self.enabled:
+        if not self.enabled or self._disabled_after_failure:
             return
         try:
             import redis
@@ -168,3 +169,4 @@ class RedisCacheService:
             LOGGER.warning("Redis unavailable; leaderboard will fall back to SQLite: %s", exc)
             self._warned_failure = True
         self._client = None
+        self._disabled_after_failure = True
