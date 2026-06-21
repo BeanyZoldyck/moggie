@@ -38,6 +38,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.s3_bucket, "")
         self.assertEqual(config.s3_region, "")
         self.assertEqual(config.s3_prefix, "")
+        self.assertFalse(config.enable_social_posting)
+        self.assertEqual(config.default_post_platform, "x")
+        self.assertEqual(config.x_api_key, "")
+        self.assertEqual(config.x_api_key_secret, "")
+        self.assertEqual(config.x_access_token, "")
+        self.assertEqual(config.x_access_token_secret, "")
 
     def test_invalid_enum_fails_fast(self) -> None:
         with self.assertRaises(ConfigError):
@@ -102,6 +108,26 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.s3_bucket, "moggie-videos")
         self.assertEqual(config.s3_region, "us-east-1")
         self.assertEqual(config.s3_prefix, "hackathon")
+
+    def test_social_posting_values_are_loaded_when_present(self) -> None:
+        config = load_config(
+            {
+                "MOGGIE_ENABLE_SOCIAL_POSTING": "true",
+                "MOGGIE_DEFAULT_POST_PLATFORM": "x",
+                "X_API_KEY": "abc",
+                "X_API_KEY_SECRET": "def",
+                "X_ACCESS_TOKEN": "ghi",
+                "X_ACCESS_TOKEN_SECRET": "jkl",
+                "MOGGIE_DEEPGRAM_VOICE_AGENT_ENDPOINT": "wss://agent.deepgram.com/v1/agent/converse",
+            }
+        )
+        self.assertTrue(config.enable_social_posting)
+        self.assertEqual(config.default_post_platform, "x")
+        self.assertEqual(config.x_api_key, "abc")
+        self.assertEqual(config.x_api_key_secret, "def")
+        self.assertEqual(config.x_access_token, "ghi")
+        self.assertEqual(config.x_access_token_secret, "jkl")
+        self.assertEqual(config.deepgram_voice_agent_endpoint, "wss://agent.deepgram.com/v1/agent/converse")
 
 
 if __name__ == "__main__":

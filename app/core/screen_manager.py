@@ -10,7 +10,9 @@ from app.services.camera_service import CameraService
 from app.services.cv_service import CVService
 from app.services.ai_job_service import AIJobService
 from app.services.leaderboard_service import LeaderboardService
+from app.services.social_post_service import SocialPostService
 from app.services.storage_service import StorageService
+from app.services.voice_agent_service import VoiceAgentService
 from app.services.voice_service import VoiceService
 from app.games.voicelines import pick_voiceline
 
@@ -56,6 +58,8 @@ class ScreenManager:
         ai_job_service: AIJobService | None = None,
         storage_service: StorageService | None = None,
         voice_service: VoiceService | None = None,
+        social_post_service: SocialPostService | None = None,
+        voice_agent_service: VoiceAgentService | None = None,
         initial_screen: str = "home",
     ) -> None:
         from app.ui.screens.home_screen import HomeScreen
@@ -74,6 +78,8 @@ class ScreenManager:
         self.ai_job_service = ai_job_service
         self.storage_service = storage_service
         self.voice_service = voice_service
+        self.social_post_service = social_post_service
+        self.voice_agent_service = voice_agent_service
         self.state = ScreenState()
         self.should_quit = False
         self.last_input_ms = 0
@@ -138,6 +144,10 @@ class ScreenManager:
         line = pick_voiceline(game_type, moment)
         if line:
             self.voice_service.speak(line)
+
+    def speak_text(self, text: str) -> None:
+        if self.voice_service is not None:
+            self.voice_service.speak(text)
 
     def _event_ticks(self) -> int:
         try:

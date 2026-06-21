@@ -46,6 +46,9 @@ class ScoreRevealScreen:
         self.replay_player: LoopingVideoPlayer | None = None
         self.replay_error = ""
         self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
+        self.social_prompt_started = False
+        self.social_status_text = ""
+        self._social_queue: "queue.Queue[tuple[str, dict[str, Any]]]" = queue.Queue()
 
     def on_enter(self, **_: Any) -> None:
         active_job_ids = {
@@ -63,6 +66,9 @@ class ScoreRevealScreen:
         self.replay_job_id = None
         self.replay_error = ""
         self._replay_queue: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
+        self.social_prompt_started = False
+        self.social_status_text = ""
+        self._social_queue = queue.Queue()
 
     def handle_event(self, event: Any) -> None:
         pygame = _pygame()
@@ -72,6 +78,16 @@ class ScoreRevealScreen:
             if self.replay_phase in {"idle", "failed"} and self._can_generate_replay():
                 self._start_replay()
             return
+        if self.replay_phase == "ready":
+            if event.key == pygame.K_x:
+                self._inject_social_input("x")
+                return
+            if event.key == pygame.K_y:
+                self._inject_social_input("yes")
+                return
+            if event.key == pygame.K_n:
+                self._inject_social_input("no")
+                return
         if event.key in {pygame.K_ESCAPE, pygame.K_h, pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE}:
             self._close_replay()
             self.manager.go_to("home")
@@ -81,6 +97,7 @@ class ScoreRevealScreen:
 
     def update(self, now_ms: int, dt_ms: int) -> None:
         self._drain_replay_queue()
+        self._drain_social_queue()
         if self.replay_player is not None:
             self.replay_player.advance(now_ms)
 
@@ -171,6 +188,98 @@ class ScoreRevealScreen:
             self.replay_phase = "ready"
             saved_path = self._save_replay(path, url)
             LOGGER.info("Recap: ready — tmp=%s saved=%s url=%s", path, saved_path, url)
+            self._start_social_prompt(url)
+
+    def _start_social_prompt(self, recap_url: str) -> None:
+        if self.social_prompt_started:
+            return
+        voice_agent = getattr(self.manager, "voice_agent_service", None)
+        if voice_agent is None:
+            return
+        session_id = getattr(self.manager.state, "last_session_id", None) or ""
+        game_type = str(getattr(self.manager.state, "selected_game_type", ""))
+        rows = list(getattr(self.manager.state, "reveal_rows", []))
+        if not session_id or not game_type:
+            return
+        try:
+            from app.services.voice_agent_service import VoicePostContext
+        except Exception:
+            return
+
+        context = VoicePostContext(
+            game_type=game_type,
+            recap_url=recap_url,
+            session_id=session_id,
+            winners=rows,
+        )
+        self.social_prompt_started = True
+        self.social_status_text = "Voice assistant: choose platform (press X), then confirm (Y/N)."
+        self.manager.speak_text("Where should I post this replay? Only X is available. Press X, then Y to post.")
+        voice_agent.begin_social_prompt(
+            context,
+            on_status=lambda event, payload: self._social_queue.put((event, payload)),
+        )
+
+    def _inject_social_input(self, text: str) -> None:
+        voice_agent = getattr(self.manager, "voice_agent_service", None)
+        if voice_agent is None:
+            return
+        voice_agent.submit_user_text(text)
+        if text == "x":
+            self.social_status_text = "Voice assistant: X selected, awaiting confirmation (Y/N)."
+        elif text in {"yes", "no"}:
+            self.social_status_text = f"Voice assistant: received '{text}'."
+
+    def _drain_social_queue(self) -> None:
+        while True:
+            try:
+                event, payload = self._social_queue.get_nowait()
+            except queue.Empty:
+                break
+            if event == "agent_text":
+                text = str(payload.get("text") or "").strip()
+                if text:
+                    self.social_status_text = f"Voice assistant: {text[:120]}"
+                    self.manager.speak_text(text)
+            elif event == "post_result":
+                url = str(payload.get("url") or "")
+                status = str(payload.get("status") or "")
+                error = str(payload.get("error") or "")
+                if status == "posted":
+                    self.social_status_text = "Posted to X successfully."
+                    self.manager.speak_text("Posted to X.")
+                else:
+                    self.social_status_text = f"X post failed: {error or status}"
+                    self.manager.speak_text("Posting failed.")
+                self._record_social_post_result(payload)
+            elif event == "declined":
+                self.social_status_text = "User declined social posting."
+                self.manager.speak_text("No problem. I will not post it.")
+                self._record_social_post_result({"status": "declined", **payload})
+            elif event == "error":
+                self.social_status_text = f"Voice agent error: {payload.get('error', 'unknown')}"
+
+    def _record_social_post_result(self, payload: dict[str, Any]) -> None:
+        session_id = getattr(self.manager.state, "last_session_id", None)
+        leaderboard = getattr(self.manager, "leaderboard_service", None)
+        if leaderboard is None or not session_id:
+            return
+        uri = str(payload.get("url") or "")
+        status = str(payload.get("status") or "")
+        metadata = {
+            "status": status,
+            "platform": "x",
+            "post_id": payload.get("post_id"),
+            "error": payload.get("error"),
+            "payload": payload,
+        }
+        leaderboard.record_media_asset(
+            session_id,
+            f"{self.manager.state.selected_game_type}.social_post",
+            uri,
+            storage_mode="remote",
+            metadata=metadata,
+        )
 
     def _save_replay(self, tmp_path: Path, remote_url: str) -> Path | None:
         """Persist generated recap media locally and/or to S3, then record in DB."""
@@ -294,6 +403,16 @@ class ScoreRevealScreen:
         video_rect.center = (width // 2, height // 2)
         self._draw_crop(pygame, surface, video_rect, frame, theme.ACCENT)
         draw_text(surface, "ENTER / ESC HOME", fonts.small, theme.TEXT_MUTED, (width // 2, height - 70), anchor="center")
+        if self.social_status_text:
+            draw_text(
+                surface,
+                self.social_status_text,
+                fonts.small,
+                theme.TEXT,
+                (width // 2, height - 42),
+                anchor="center",
+                max_width=width - 80,
+            )
 
     def _render_score_rows(self, pygame: Any, surface: Any, rows: list[dict[str, Any]], fonts: FontSet, width: int) -> None:
         panel_w = min(920, width - 96)

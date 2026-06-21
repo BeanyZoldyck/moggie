@@ -14,6 +14,9 @@ dependencies = [
     "mediapipe>=0.10",
     "redis>=5.0",
     "boto3>=1.34",
+    "requests>=2.32",
+    "requests-oauthlib>=2.0",
+    "websocket-client>=1.8",
 ]
 
 [project.optional-dependencies]

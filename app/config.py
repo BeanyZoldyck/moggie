@@ -102,6 +102,13 @@ class MoggieConfig:
     enable_voice: bool
     deepgram_api_key: str
     deepgram_voice_model: str
+    enable_social_posting: bool
+    default_post_platform: str
+    x_api_key: str
+    x_api_key_secret: str
+    x_access_token: str
+    x_access_token_secret: str
+    deepgram_voice_agent_endpoint: str
 
     @property
     def display_size(self) -> tuple[int, int]:
@@ -109,7 +116,7 @@ class MoggieConfig:
 
 
 def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
-    env = environ or _load_environment()
+    env = environ if environ is not None else _load_environment()
     app_env = _enum(env, "MOGGIE_ENV", "development", ENVIRONMENTS)
 
     return MoggieConfig(
@@ -202,6 +209,17 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         enable_voice=_bool(env, "MOGGIE_ENABLE_VOICE", True),
         deepgram_api_key=_str(env, "DEEPGRAM_API_KEY", ""),
         deepgram_voice_model=_str(env, "MOGGIE_DEEPGRAM_VOICE_MODEL", "aura-2-atlas-en"),
+        enable_social_posting=_bool(env, "MOGGIE_ENABLE_SOCIAL_POSTING", False),
+        default_post_platform=_str(env, "MOGGIE_DEFAULT_POST_PLATFORM", "x"),
+        x_api_key=_str(env, "X_API_KEY", ""),
+        x_api_key_secret=_str(env, "X_API_KEY_SECRET", ""),
+        x_access_token=_str(env, "X_ACCESS_TOKEN", ""),
+        x_access_token_secret=_str(env, "X_ACCESS_TOKEN_SECRET", ""),
+        deepgram_voice_agent_endpoint=_str(
+            env,
+            "MOGGIE_DEEPGRAM_VOICE_AGENT_ENDPOINT",
+            "wss://agent.deepgram.com/v1/agent/converse",
+        ),
     )
 
 
