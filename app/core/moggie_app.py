@@ -10,6 +10,10 @@ from app.services.ai_job_service import AIJobService
 from app.services.camera_service import CameraService
 from app.services.cv_service import CVService
 from app.services.leaderboard_service import LeaderboardService
+from app.services.social_post_service import SocialPostService
+from app.services.storage_service import StorageService
+from app.services.voice_agent_service import VoiceAgentService
+from app.services.voice_service import VoiceService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -21,12 +25,13 @@ def _pygame() -> Any:
 
 
 class MoggieApp:
-    target_fps = 30
-
     def __init__(self, config: MoggieConfig) -> None:
         self.config = config
+        self.target_fps = config.target_fps
         self.event_bus = EventBus()
         self.leaderboard_service = LeaderboardService.from_config(config)
+        self.storage_service = StorageService.from_config(config)
+        self.storage_service.ensure_ready()
         self.camera_service = CameraService.from_config(config)
         self.cv_service = CVService.from_config(
             config,
@@ -34,12 +39,22 @@ class MoggieApp:
             camera_service=self.camera_service,
         )
         self.ai_job_service = AIJobService.from_config(config, event_bus=self.event_bus)
+        self.voice_service = VoiceService.from_config(config)
+        self.social_post_service = SocialPostService.from_config(config)
+        self.voice_agent_service = VoiceAgentService.from_config(
+            config,
+            social_post_service=self.social_post_service,
+        )
         self.screen_manager = ScreenManager(
             config,
             self.leaderboard_service,
             camera_service=self.camera_service,
             cv_service=self.cv_service,
             ai_job_service=self.ai_job_service,
+            storage_service=self.storage_service,
+            voice_service=self.voice_service,
+            social_post_service=self.social_post_service,
+            voice_agent_service=self.voice_agent_service,
         )
         self.running = False
 
@@ -66,12 +81,14 @@ class MoggieApp:
             self.camera_service.start()
             self.cv_service.start()
             self.ai_job_service.start()
+            self.voice_service.start()
             while self.running and (max_frames == 0 or frame_count < max_frames):
                 dt_ms = clock.tick(self.target_fps)
                 self.camera_service.poll()
                 for app_event in self.event_bus.drain():
                     self.cv_service.record_event(app_event)
                     self.screen_manager.handle_app_event(app_event)
+                now_ms = pygame.time.get_ticks()
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
@@ -82,7 +99,7 @@ class MoggieApp:
                     else:
                         self.screen_manager.handle_event(event)
 
-                self.screen_manager.update(pygame.time.get_ticks(), dt_ms)
+                self.screen_manager.update(now_ms, dt_ms)
                 self.screen_manager.render(surface)
                 pygame.display.flip()
 
@@ -90,6 +107,8 @@ class MoggieApp:
                     self.running = False
                 frame_count += 1
         finally:
+            self.voice_agent_service.stop()
+            self.voice_service.stop()
             self.ai_job_service.stop()
             self.cv_service.stop()
             self.camera_service.stop()
@@ -97,6 +116,8 @@ class MoggieApp:
             LOGGER.info("Moggie app exited after %s frame(s)", frame_count)
 
     def _is_quit_shortcut(self, event: Any, pygame: Any) -> bool:
-        if event.type != pygame.KEYDOWN or event.key != pygame.K_q:
+        if event.type != pygame.KEYDOWN:
             return False
-        return bool(event.mod & (pygame.KMOD_CTRL | pygame.KMOD_META))
+        if not event.mod & (pygame.KMOD_CTRL | pygame.KMOD_META):
+            return False
+        return event.key in {pygame.K_q, pygame.K_ESCAPE}

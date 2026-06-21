@@ -141,6 +141,21 @@ class ShellNavigationTests(unittest.TestCase):
         self.assertEqual(leaders[0]["display_name"], "Ivy")
         self.assertEqual(leaders[0]["score"], 200)
 
+    def test_emoji_feedback_uses_target_label_not_noisy_detected_label(self) -> None:
+        manager = self._manager({"MOGGIE_EMOJI_MODE": "solo"})
+        manager.state.selected_game_type = "emoji_face_match"
+        manager.state.player_names = ["Ivy"]
+        manager.go_to("emoji_face_match")
+
+        screen = manager.active
+        lane = screen.lanes[0]
+        lane.face = {"expression_features": {"tongue_out": 0.9, "mouth_open": 0.4}}
+        lane.targets = [type("Target", (), {"expression": "smile", "spawn_ms": 0, "scored": False})()]
+
+        screen._score_due_targets(lane, now_ms=10_000)
+
+        self.assertEqual(lane.feedback, "MISS SMILE")
+
     def test_solo_modes_use_one_name_field(self) -> None:
         manager = self._manager({"MOGGIE_67_MODE": "solo"})
         manager.state.selected_game_type = "sixty_seven"

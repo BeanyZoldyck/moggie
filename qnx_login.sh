@@ -1,0 +1,18 @@
+curl 'https://captiveportal-login.berkeley.edu/cgi-bin/login' \
+  -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7' \
+  -H 'Accept-Language: en-US,en;q=0.9' \
+  -H 'Cache-Control: max-age=0' \
+  -H 'Connection: keep-alive' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -b 'CPsession=http://connectivitycheck.gstatic.com/generate_204' \
+  -H 'Origin: https://welcome.wifi.berkeley.edu' \
+  -H 'Referer: https://welcome.wifi.berkeley.edu/' \
+  -H 'Sec-Fetch-Dest: document' \
+  -H 'Sec-Fetch-Mode: navigate' \
+  -H 'Sec-Fetch-Site: same-site' \
+  -H 'Upgrade-Insecure-Requests: 1' \
+  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36' \
+  -H 'sec-ch-ua: "Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"' \
+  -H 'sec-ch-ua-mobile: ?0' \
+  -H 'sec-ch-ua-platform: "Linux"' \
+  --data-raw 'user=berkeley-visitor&password=76%21kzLOA&cmd=authenticate&url=http%3A%2F%2Ffreshbeautifulwonderousspell.neverssl.com%2Fonline&Login=Log+In'

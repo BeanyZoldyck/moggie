@@ -93,6 +93,36 @@ class FalPikaClientTests(unittest.TestCase):
 
         self.assertEqual(client.submitted_payloads, [])
 
+    def test_generate_video_from_image_inlines_a_base64_data_uri(self) -> None:
+        client = FakeFalPikaClient(
+            statuses=[{"status": "COMPLETED", "request_id": "req_123"}],
+            result={"video": {"url": "https://v3.fal.media/files/avatar.mp4"}},
+        )
+
+        result = asyncio.run(
+            client.generate_video_from_image(
+                b"\xff\xd8\xff\xd9",
+                "image/jpeg",
+                "Mog this person",
+                {"job_id": "ai_999", "kind": "mog_mirror.avatar_video"},
+            )
+        )
+
+        self.assertEqual(result["uri"], "https://v3.fal.media/files/avatar.mp4")
+        submitted_image_url = client.submitted_payloads[0]["image_url"]
+        self.assertTrue(submitted_image_url.startswith("data:image/jpeg;base64,"))
+        # the returned result must NOT echo the full (potentially huge) data URI
+        self.assertNotIn("base64,/", result["image_url"])
+        self.assertIn("bytes>", result["image_url"])
+
+    def test_generate_video_from_image_requires_bytes(self) -> None:
+        client = FakeFalPikaClient(statuses=[], result={})
+
+        with self.assertRaises(FalPikaError):
+            asyncio.run(client.generate_video_from_image(b"", "image/jpeg", "prompt", {"job_id": "ai_1"}))
+
+        self.assertEqual(client.submitted_payloads, [])
+
 
 if __name__ == "__main__":
     unittest.main()

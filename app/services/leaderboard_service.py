@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -215,6 +216,21 @@ class LeaderboardService:
             )
             connection.commit()
 
+        if self._redis_active():
+            try:
+                self._index_score_in_redis(
+                    score_record.id,
+                    game_type,
+                    score,
+                    score_record.created_at,
+                    player.display_name,
+                    label,
+                )
+            except Exception as exc:
+                LOGGER.warning(
+                    "Redis leaderboard write failed; score persisted in SQLite only: %s",
+                    exc,
+                )
         rank = self.rank_for_score(score_record.id)
         with connect(self.db_path) as connection:
             connection.execute(
@@ -226,8 +242,6 @@ class LeaderboardService:
                 (rank, score_record.id),
             )
             connection.commit()
-
-        self._delete_cache(self._cache_key(game_type))
         return Score(
             id=score_record.id,
             session_id=score_record.session_id,
@@ -243,17 +257,65 @@ class LeaderboardService:
     def top_scores(self, game_type: str, limit: int = 10) -> list[LeaderboardEntry]:
         self._validate_game_type(game_type)
         limit = max(1, min(100, limit))
-        if limit != 10:
+        if not self._redis_active():
+            return self._query_top_scores(game_type, limit)
+        try:
+            redis = self.cache
+            assert redis is not None
+            members = redis.zrevrange(self._leaderboard_key(game_type), 0, limit - 1)
+            entries: list[LeaderboardEntry] = []
+            for member in members:
+                score_id = self._score_id_from_member(member)
+                if not score_id:
+                    continue
+                row = redis.hgetall(self._score_hash_key(score_id))
+                if not row:
+                    continue
+                try:
+                    score_value = int(row.get("score", "0"))
+                except ValueError:
+                    continue
+                entries.append(
+                    {
+                        "display_name": row.get("display_name", "Unknown"),
+                        "score": score_value,
+                        "label": row.get("label") or None,
+                        "created_at": row.get("created_at", ""),
+                    }
+                )
+            return entries
+        except Exception as exc:
+            LOGGER.warning("Redis leaderboard read failed; falling back to SQLite: %s", exc)
             return self._query_top_scores(game_type, limit)
 
-        cache_key = self._cache_key(game_type)
-        cached = self._get_cached_entries(cache_key)
-        if cached is not None:
-            return cached
+    def record_media_asset(
+        self,
+        session_id: str,
+        kind: str,
+        uri: str,
+        *,
+        storage_mode: str = "remote",
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Persist a generated media asset (video URL or local path) to the DB.
 
-        entries = self._query_top_scores(game_type, limit)
-        self._set_cache(cache_key, entries)
-        return entries
+        Returns the new asset id. ``kind`` is a dotted game+type string like
+        ``"mog_mirror.recap_video"``. ``storage_mode`` is ``"remote"`` for a
+        fal.ai URL or ``"local"`` for a file saved to ``MOGGIE_MEDIA_DIR``.
+        """
+        asset_id = new_id("media")
+        metadata_json = json.dumps(metadata or {})
+        created_at = utc_now_iso()
+        with connect(self.db_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO media_assets (id, session_id, player_id, kind, storage_mode, uri, metadata_json, created_at)
+                VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
+                """,
+                (asset_id, session_id, kind, storage_mode, uri, metadata_json, created_at),
+            )
+        LOGGER.debug("Recorded media asset %s kind=%s uri=%.80s", asset_id, kind, uri)
+        return asset_id
 
     def recent_media_assets(self, limit: int = 6) -> list[dict[str, Any]]:
         limit = max(1, min(50, limit))
@@ -280,6 +342,29 @@ class LeaderboardService:
             return [dict(row) for row in rows]
 
     def rank_for_score(self, score_id: str) -> int:
+        if not self._redis_active():
+            return self._rank_for_score_sqlite(score_id)
+        try:
+            redis = self.cache
+            assert redis is not None
+            score_row = redis.hgetall(self._score_hash_key(score_id))
+            if not score_row:
+                return self._rank_for_score_sqlite(score_id)
+            game_type = score_row.get("game_type")
+            member = score_row.get("member")
+            if not game_type or not member:
+                raise ValueError(f"Incomplete leaderboard metadata for score: {score_id}")
+            rank = redis.zrevrank(self._leaderboard_key(game_type), member)
+            if rank is None:
+                return self._rank_for_score_sqlite(score_id)
+            return rank + 1
+        except ValueError:
+            raise
+        except Exception as exc:
+            LOGGER.warning("Redis rank lookup failed; falling back to SQLite: %s", exc)
+            return self._rank_for_score_sqlite(score_id)
+
+    def _rank_for_score_sqlite(self, score_id: str) -> int:
         with connect(self.db_path) as connection:
             row = connection.execute(
                 """
@@ -321,6 +406,68 @@ class LeaderboardService:
                 (game_type, limit),
             )
             return [dict(row) for row in rows]
+
+    def _redis_active(self) -> bool:
+        if self.cache is None:
+            return False
+        if not self.cache.available:
+            self.cache.connect()
+        return self.cache.available
+
+    def _leaderboard_key(self, game_type: str) -> str:
+        return f"leaderboard:{game_type}:scores"
+
+    def _score_hash_key(self, score_id: str) -> str:
+        return f"leaderboard:score:{score_id}"
+
+    def _index_score_in_redis(
+        self,
+        score_id: str,
+        game_type: str,
+        score: int,
+        created_at: str,
+        display_name: str,
+        label: str | None,
+    ) -> None:
+        redis = self.cache
+        if redis is None or not redis.available:
+            raise RuntimeError("Redis leaderboard is unavailable.")
+        member = self._member_for_score(created_at, score_id)
+        redis.zadd(self._leaderboard_key(game_type), member, float(score))
+        redis.hset_many(
+            self._score_hash_key(score_id),
+            {
+                "score_id": score_id,
+                "member": member,
+                "game_type": game_type,
+                "display_name": display_name,
+                "score": str(score),
+                "label": label or "",
+                "created_at": created_at,
+            },
+        )
+
+    def _member_for_score(self, created_at: str, score_id: str) -> str:
+        # For equal scores, zrevrange breaks ties by reverse member order.
+        # Inverting timestamp keeps earlier scores ahead of later ones.
+        ts_ms = self._timestamp_ms(created_at)
+        inverted_ts = 9_999_999_999_999 - ts_ms
+        return f"{inverted_ts:013d}:{score_id}"
+
+    def _score_id_from_member(self, member: str) -> str:
+        if ":" not in member:
+            return ""
+        _, score_id = member.split(":", 1)
+        return score_id
+
+    def _timestamp_ms(self, created_at: str) -> int:
+        normalized = created_at.strip()
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
 
     def _get_cached_entries(self, key: str) -> list[LeaderboardEntry] | None:
         if self.cache is None:

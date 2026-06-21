@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import time
@@ -42,6 +43,29 @@ class FalPikaClient:
             raise FalPikaError("FAL_KEY is required for Fal/Pika video generation")
         if not self.model:
             raise FalPikaError("MOGGIE_PIKA_MODEL is required for Fal/Pika video generation")
+
+    async def generate_video_from_image(
+        self,
+        image_bytes: bytes,
+        image_mime_type: str,
+        prompt: str,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Generate a video directly from raw image bytes.
+
+        Fal accepts a base64 data URI wherever it accepts an ``image_url``, so we
+        avoid a separate upload round-trip by inlining the captured frame. This is
+        the method ``AIJobService`` prefers for "video" jobs that carry image bytes.
+        """
+        if not image_bytes:
+            raise FalPikaError("Fal/Pika image-to-video requires image bytes")
+        mime = (image_mime_type or "image/jpeg").strip() or "image/jpeg"
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        data_uri = f"data:{mime};base64,{encoded}"
+        result = await self.generate_video(data_uri, prompt, metadata)
+        # The data URI can be hundreds of KB; don't echo it back through events/logs.
+        result["image_url"] = f"data:{mime};base64,<{len(image_bytes)} bytes>"
+        return result
 
     async def generate_video(self, image_url: str, prompt: str, metadata: dict[str, Any]) -> dict[str, Any]:
         if not image_url or image_url == "mock://source":
@@ -182,6 +206,18 @@ class FalPikaClient:
                 value = decoded.get(key)
                 if value:
                     return str(value)
+        if isinstance(decoded, list):
+            parts: list[str] = []
+            for item in decoded:
+                if isinstance(item, dict):
+                    msg = item.get("msg") or item.get("message")
+                    err_type = item.get("type")
+                    if msg and err_type:
+                        parts.append(f"{err_type}: {msg}")
+                    elif msg:
+                        parts.append(str(msg))
+            if parts:
+                return "; ".join(parts)
         return None
 
     def _extract_video_url(self, result: dict[str, Any]) -> str | None:

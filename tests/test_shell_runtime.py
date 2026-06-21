@@ -82,6 +82,9 @@ class ShellRuntimeTests(unittest.TestCase):
         self.manager.render(surface)
         self.manager.go_to("leaderboard")
         self.manager.render(surface)
+        self.manager.state.player_names = ["Ada", "Ben"]
+        self.manager.go_to("emoji_face_match")
+        self.manager.render(surface)
         self.manager.go_to("idle_attract")
         self.manager.update(10_000, 16)
         self.manager.render(surface)

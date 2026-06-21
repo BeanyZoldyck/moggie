@@ -10,6 +10,11 @@ from app.services.camera_service import CameraService
 from app.services.cv_service import CVService
 from app.services.ai_job_service import AIJobService
 from app.services.leaderboard_service import LeaderboardService
+from app.services.social_post_service import SocialPostService
+from app.services.storage_service import StorageService
+from app.services.voice_agent_service import VoiceAgentService
+from app.services.voice_service import VoiceService
+from app.games.voicelines import pick_voiceline
 
 
 class Screen(Protocol):
@@ -36,6 +41,10 @@ class ScreenState:
     selected_game_type: str = GAMES[0].game_type
     player_names: list[str] = field(default_factory=list)
     reveal_rows: list[dict[str, Any]] = field(default_factory=list)
+    # Full camera frame from the last round (both sides), for the opt-in recap video.
+    reveal_replay_image: Any = None
+    # Session ID of the last completed round — used by score reveal to record media assets.
+    last_session_id: str | None = None
 
 
 class ScreenManager:
@@ -47,6 +56,10 @@ class ScreenManager:
         camera_service: CameraService | None = None,
         cv_service: CVService | None = None,
         ai_job_service: AIJobService | None = None,
+        storage_service: StorageService | None = None,
+        voice_service: VoiceService | None = None,
+        social_post_service: SocialPostService | None = None,
+        voice_agent_service: VoiceAgentService | None = None,
         initial_screen: str = "home",
     ) -> None:
         from app.ui.screens.home_screen import HomeScreen
@@ -63,6 +76,10 @@ class ScreenManager:
         self.camera_service = camera_service
         self.cv_service = cv_service
         self.ai_job_service = ai_job_service
+        self.storage_service = storage_service
+        self.voice_service = voice_service
+        self.social_post_service = social_post_service
+        self.voice_agent_service = voice_agent_service
         self.state = ScreenState()
         self.should_quit = False
         self.last_input_ms = 0
@@ -120,6 +137,17 @@ class ScreenManager:
     def wake_to_home(self) -> None:
         self.last_input_ms = self._event_ticks()
         self.go_to("home")
+
+    def speak_voiceline(self, game_type: str, moment: str) -> None:
+        if self.voice_service is None:
+            return
+        line = pick_voiceline(game_type, moment)
+        if line:
+            self.voice_service.speak(line)
+
+    def speak_text(self, text: str) -> None:
+        if self.voice_service is not None:
+            self.voice_service.speak(text)
 
     def _event_ticks(self) -> int:
         try:

@@ -14,6 +14,7 @@ from app.ai.base import (
 )
 from app.ai.fal_pika_client import FalPikaClient
 from app.ai.midjourney_mcp_client import MidjourneyMCPClient
+from app.ai.pika_mcp_client import PikaMCPClient
 from app.ai.mock_clients import (
     MockImageGenerationClient,
     MockTextGenerationClient,
@@ -73,7 +74,16 @@ class AIJobService:
             )
 
         video_client: VideoGenerationClient | None = None
-        if config.enable_pika and config.fal_key:
+        if config.enable_pika and config.pika_provider == "mcp":
+            video_client = PikaMCPClient(
+                mcp_url=config.pika_mcp_url,
+                bearer_token=config.pika_mcp_bearer_token,
+                token_store=config.pika_mcp_token_store,
+                generation_tool=config.pika_mcp_generation_tool,
+                upload_tool=config.pika_mcp_upload_tool,
+                timeout_seconds=config.ai_timeout_seconds,
+            )
+        elif config.enable_pika and config.fal_key:
             video_client = FalPikaClient(
                 api_key=config.fal_key,
                 model=config.pika_model,
@@ -136,6 +146,10 @@ class AIJobService:
         if "caricature" in kind or kind.endswith(".image") or kind == "image":
             return await self.image_client.generate_caricature(image_bytes, prompt, metadata)
         if "video" in kind:
+            image_mime_type = str(payload.get("image_mime_type") or "image/jpeg")
+            direct_image_generator = getattr(self.video_client, "generate_video_from_image", None)
+            if image_bytes and direct_image_generator is not None:
+                return await direct_image_generator(image_bytes, image_mime_type, prompt, metadata)
             image_url = str(payload.get("image_url") or payload.get("source_uri") or "mock://source")
             return await self.video_client.generate_video(image_url, prompt, metadata)
         if "vision" in kind or "expression" in kind:
@@ -159,6 +173,46 @@ class AIJobService:
             return "Write a short funny Moggie aura label."
         return "Run a mock AI enhancement for Moggie."
 
+    def _maybe_submit_followup_video(self, source_job: AIJob, result: dict[str, Any]) -> str | None:
+        if not source_job.payload.get("request_pika_video"):
+            return None
+        if "video" in source_job.kind:
+            return None
+        image_url = self._extract_public_image_url(result)
+        if image_url is None:
+            return None
+
+        payload = {
+            key: value
+            for key, value in source_job.payload.items()
+            if key
+            not in {
+                "image_bytes",
+                "image_mime_type",
+                "prompt",
+                "request_pika_video",
+                "video_prompt",
+            }
+        }
+        payload.update(
+            {
+                "image_url": image_url,
+                "source_image_job_id": source_job.id,
+                "source_image_provider": str(result.get("provider") or ""),
+            }
+        )
+        video_prompt = source_job.payload.get("video_prompt")
+        if isinstance(video_prompt, str) and video_prompt.strip():
+            payload["prompt"] = video_prompt.strip()
+        return self.submit("mog_mirror.victory_video", payload)
+
+    def _extract_public_image_url(self, result: dict[str, Any]) -> str | None:
+        for key in ("image_url", "url", "uri"):
+            value = result.get(key)
+            if isinstance(value, str) and value.startswith(("http://", "https://")):
+                return value
+        return None
+
 
 class _AIJobWorker(ManagedWorker):
     def __init__(self, service: AIJobService) -> None:
@@ -181,5 +235,6 @@ class _AIJobWorker(ManagedWorker):
                 self.service._publish(job, "failed", error=str(exc))
             else:
                 self.service._publish(job, "succeeded", result=result)
+                self.service._maybe_submit_followup_video(job, result)
             finally:
                 self.service._jobs.task_done()

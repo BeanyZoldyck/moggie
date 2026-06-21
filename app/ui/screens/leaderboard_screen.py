@@ -8,9 +8,11 @@ from app.ui.render_utils import (
     FontSet,
     build_fonts,
     draw_bottom_rule,
-    draw_panel,
     draw_text,
+    scaled_asset_image,
 )
+
+from app.ui.sparkle_layer import SparkleLayer
 
 
 def _pygame() -> Any:
@@ -28,6 +30,7 @@ class LeaderboardScreen:
         self.game_index = 0
         self.entries: list[dict[str, Any]] = []
         self.error: str | None = None
+        self.sparkles = None
 
     def on_enter(self, **_: Any) -> None:
         self.game_index = game_index(self.manager.state.selected_game_type)
@@ -47,6 +50,8 @@ class LeaderboardScreen:
             self.manager.go_to("player_setup")
 
     def update(self, now_ms: int, dt_ms: int) -> None:
+        if self.sparkles is not None:
+            self.sparkles.update(dt_ms)
         return None
 
     def render(self, surface: Any) -> None:
@@ -54,25 +59,26 @@ class LeaderboardScreen:
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-        surface.fill(theme.BACKGROUND)
+        if self.sparkles is None:
+            self.sparkles = SparkleLayer(pygame, width, height, count=120)
+        bg = scaled_asset_image(pygame, "leaderboard_bg.png", (width, height))
+        if bg is not None:
+            surface.blit(bg, (0, 0))
+        else:
+            surface.fill(theme.BACKGROUND)
 
         game = game_for_type(self.manager.state.selected_game_type)
-        pygame.draw.rect(surface, (31, 24, 24), pygame.Rect(0, 0, width, 118))
-        pygame.draw.rect(surface, game.accent, pygame.Rect(0, 118, width, 4))
-        draw_text(surface, "LEADERBOARD", fonts.title, theme.TEXT, (48, 30), max_width=width - 96)
-        draw_text(surface, game.title, fonts.body, game.accent, (52, 92), max_width=width - 104)
 
         table_rect = pygame.Rect(64, 162, width - 128, height - 276)
-        draw_panel(pygame, surface, table_rect, fill=theme.SURFACE, border=theme.BORDER, width=1)
         header_y = table_rect.top + 26
-        draw_text(surface, "RANK", fonts.small, theme.TEXT_MUTED, (table_rect.left + 28, header_y))
-        draw_text(surface, "NAME", fonts.small, theme.TEXT_MUTED, (table_rect.left + 118, header_y))
-        draw_text(surface, "SCORE", fonts.small, theme.TEXT_MUTED, (table_rect.right - 30, header_y), anchor="topright")
+        draw_text(surface, "RANK", fonts.small, theme.TEXT_MUTED, (table_rect.left + 200, header_y))
+        draw_text(surface, "NAME", fonts.small, theme.TEXT_MUTED, (table_rect.left + 300, header_y))
+        draw_text(surface, "SCORE", fonts.small, theme.TEXT_MUTED, (table_rect.right - 350, header_y), anchor="topright")
         pygame.draw.line(
             surface,
             theme.DIM_BORDER,
-            (table_rect.left + 24, header_y + 34),
-            (table_rect.right - 24, header_y + 34),
+            (table_rect.left + 200, header_y + 34),
+            (table_rect.right - 200, header_y + 34),
             1,
         )
 
@@ -82,16 +88,16 @@ class LeaderboardScreen:
             draw_text(surface, "NO SCORES YET", fonts.body, theme.TEXT_MUTED, table_rect.center, anchor="center")
         else:
             row_y = header_y + 56
-            row_h = 42
+            row_h = 30
             for rank, entry in enumerate(self.entries[:10], start=1):
                 y = row_y + (rank - 1) * row_h
-                draw_text(surface, str(rank), fonts.mono, game.accent, (table_rect.left + 32, y))
+                draw_text(surface, str(rank), fonts.mono, game.accent, (table_rect.left + 200, y))
                 draw_text(
                     surface,
                     str(entry["display_name"]),
                     fonts.body,
                     theme.TEXT,
-                    (table_rect.left + 118, y - 2),
+                    (table_rect.left + 300, y - 2),
                     max_width=table_rect.width - 310,
                 )
                 draw_text(
@@ -99,12 +105,14 @@ class LeaderboardScreen:
                     str(entry["score"]),
                     fonts.mono,
                     theme.TEXT,
-                    (table_rect.right - 32, y),
+                    (table_rect.right - 350, y),
                     anchor="topright",
                 )
 
         draw_bottom_rule(pygame, surface, height - 44, width)
         draw_text(surface, "MOGGIE", fonts.small, theme.TEXT_MUTED, (48, height - 32))
+        if self.sparkles is not None:
+            self.sparkles.render(surface)
 
     def _move_game(self, direction: int) -> None:
         self.game_index = (self.game_index + direction) % len(GAMES)

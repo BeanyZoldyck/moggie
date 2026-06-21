@@ -20,21 +20,21 @@ GAMES: tuple[GameDefinition, ...] = (
         title="Mog Mirror",
         badge="AURA",
         tagline="Face the mirror. Claim the glow.",
-        accent=(81, 238, 122),
+        accent=(0, 130, 255),
     ),
     GameDefinition(
         game_type="sixty_seven",
         title="67 Challenge",
         badge="REP",
         tagline="Left lane, right lane, clean reps.",
-        accent=(255, 203, 77),
+        accent= (255, 96, 116),
     ),
     GameDefinition(
         game_type="emoji_face_match",
         title="Emoji Face Match",
         badge="MOJI",
         tagline="Match the face before the lane closes.",
-        accent=(255, 96, 116),
+        accent= (255, 203, 77),
     ),
 )
 
