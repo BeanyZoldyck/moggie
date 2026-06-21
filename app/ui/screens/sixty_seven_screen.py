@@ -146,6 +146,7 @@ class SixtySevenScreen:
             frame_bgr=frame,
             diagnostic=diagnostic,
             show_divider=self.manager.config.show_zone_divider,
+            split_pane=True,
         )
         state = self.manager.cv_service.latest_state() if self.manager.cv_service is not None else None
         hands = list(state.hand_landmarks.get("hands", [])) if state is not None else []
@@ -156,6 +157,7 @@ class SixtySevenScreen:
             hands,
             stale=stale,
             split_x=self.manager.config.zone_split_x,
+            point_mapper=self.preview_renderer.point_to_screen,
         )
 
         panel_y = height - 174

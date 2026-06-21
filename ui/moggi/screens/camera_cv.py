@@ -210,6 +210,28 @@ class CameraCVBridge:
         pygame.draw.rect(surface, (50, 255, 120), preview_rect, 2)
         return preview_rect
 
+    def draw_zone_preview(self, surface, rect, font=None):
+        if self.display_frame is None or self.cv2 is None or self.np is None:
+            return self.draw_preview(surface, rect, font)
+
+        pygame.draw.rect(surface, (8, 6, 18), rect)
+
+        frame_height, frame_width = self.display_frame.shape[:2]
+        crop = self._blit_crop_fill(surface, self.display_frame, rect)
+        self.preview_rect = rect
+        self.preview_regions = [
+            {
+                "zone": "all",
+                "source": (0.0, 0.0, 1.0, 1.0),
+                "source_size": (frame_width, frame_height),
+                "crop": crop,
+                "dest": rect,
+            }
+        ]
+
+        pygame.draw.rect(surface, (50, 255, 120), rect, 2)
+        return rect
+
     def draw_split_preview(self, surface, rect, font=None):
         if self.display_frame is None or self.cv2 is None or self.np is None:
             return self.draw_preview(surface, rect, font)

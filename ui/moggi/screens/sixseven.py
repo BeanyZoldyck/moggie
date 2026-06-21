@@ -161,7 +161,7 @@ class SixSevenScreen:
             screen.fill((15, 5, 35))
 
         if camera is not None:
-            camera.draw_split_preview(screen, video_rect, self.small_font)
+            camera.draw_zone_preview(screen, video_rect, self.small_font)
             camera.draw_hand_overlay(screen)
 
         draw_video_divider(screen, self.width, video_rect)

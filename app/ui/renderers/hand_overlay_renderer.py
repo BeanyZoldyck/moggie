@@ -34,6 +34,7 @@ class HandOverlayRenderer:
         *,
         stale: bool = False,
         split_x: float = 0.5,
+        point_mapper: Any | None = None,
     ) -> None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
@@ -47,7 +48,12 @@ class HandOverlayRenderer:
             points = hand.get("landmarks", [])
             if not isinstance(points, list):
                 continue
-            screen_points = [self._to_screen(rect, point) for point in points if isinstance(point, Mapping)]
+            screen_points = [
+                self._to_screen(rect, point, zone=str(hand.get("zone", "")), point_mapper=point_mapper)
+                for point in points
+                if isinstance(point, Mapping)
+            ]
+            screen_points = [point for point in screen_points if point is not None]
             for start, end in HAND_CONNECTIONS:
                 if start < len(screen_points) and end < len(screen_points):
                     pygame.draw.line(surface, green, screen_points[start], screen_points[end], 2)
@@ -56,7 +62,9 @@ class HandOverlayRenderer:
 
             palm = hand.get("palm_center")
             if isinstance(palm, Mapping):
-                center = self._to_screen(rect, palm)
+                center = self._to_screen(rect, palm, zone=str(hand.get("zone", "")), point_mapper=point_mapper)
+                if center is None:
+                    continue
                 pygame.draw.circle(surface, theme.WARNING, center, 8, 2)
                 zone = str(hand.get("zone", "")).upper()
                 if zone:
@@ -68,7 +76,19 @@ class HandOverlayRenderer:
         elif not hands:
             draw_text(surface, "SHOW HANDS", self.fonts.small, dim_green, (rect.centerx, rect.centery), anchor="center")
 
-    def _to_screen(self, rect: Any, point: Mapping[str, Any]) -> tuple[int, int]:
+    def _to_screen(
+        self,
+        rect: Any,
+        point: Mapping[str, Any],
+        *,
+        zone: str | None = None,
+        point_mapper: Any | None = None,
+    ) -> tuple[int, int] | None:
+        if point_mapper is not None:
+            mapped = point_mapper(point, zone=zone, fallback_rect=rect)
+            if mapped is not None:
+                return mapped
+
         return (
             rect.left + int(float(point["x"]) * rect.width),
             rect.top + int(float(point["y"]) * rect.height),

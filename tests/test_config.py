@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from app.config import ConfigError, load_config
 
@@ -46,6 +50,24 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.sixty_seven_extend_threshold, 0.30)
         self.assertEqual(config.sixty_seven_return_threshold, 0.27)
         self.assertEqual(config.sixty_seven_min_swing, 0.02)
+
+    def test_load_config_reads_local_dotenv_without_overriding_environment(self) -> None:
+        cwd = Path.cwd()
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"MOGGIE_TARGET_FPS": "24"}, clear=True):
+            os.chdir(tmp)
+            try:
+                Path(".env").write_text(
+                    "MOGGIE_TARGET_FPS=60\n"
+                    "MOGGIE_REDIS_URL='redis://default:secret@example.redis:13364/0'\n",
+                    encoding="utf-8",
+                )
+
+                config = load_config()
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(config.target_fps, 24)
+        self.assertEqual(config.redis_url, "redis://default:secret@example.redis:13364/0")
 
 
 if __name__ == "__main__":

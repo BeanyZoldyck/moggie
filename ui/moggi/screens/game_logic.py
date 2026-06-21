@@ -209,3 +209,26 @@ def winner_from_scores(player_one_score, player_two_score):
     if player_two_score > player_one_score:
         return "player_two"
     return "tie"
+
+
+def normalize_winner(winner, player_one_score, player_two_score):
+    winner_key = str(winner or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "player_one": "player_one",
+        "player_1": "player_one",
+        "p1": "player_one",
+        "one": "player_one",
+        "player_two": "player_two",
+        "player_2": "player_two",
+        "p2": "player_two",
+        "two": "player_two",
+        "tie": "tie",
+        "draw": "tie",
+    }
+    normalized = aliases.get(winner_key)
+
+    if normalized in {"player_one", "player_two"}:
+        return normalized
+    if player_one_score != player_two_score:
+        return winner_from_scores(player_one_score, player_two_score)
+    return "tie"

@@ -159,6 +159,46 @@ class AIJobService:
             return "Write a short funny Moggie aura label."
         return "Run a mock AI enhancement for Moggie."
 
+    def _maybe_submit_followup_video(self, source_job: AIJob, result: dict[str, Any]) -> str | None:
+        if not source_job.payload.get("request_pika_video"):
+            return None
+        if "video" in source_job.kind:
+            return None
+        image_url = self._extract_public_image_url(result)
+        if image_url is None:
+            return None
+
+        payload = {
+            key: value
+            for key, value in source_job.payload.items()
+            if key
+            not in {
+                "image_bytes",
+                "image_mime_type",
+                "prompt",
+                "request_pika_video",
+                "video_prompt",
+            }
+        }
+        payload.update(
+            {
+                "image_url": image_url,
+                "source_image_job_id": source_job.id,
+                "source_image_provider": str(result.get("provider") or ""),
+            }
+        )
+        video_prompt = source_job.payload.get("video_prompt")
+        if isinstance(video_prompt, str) and video_prompt.strip():
+            payload["prompt"] = video_prompt.strip()
+        return self.submit("mog_mirror.victory_video", payload)
+
+    def _extract_public_image_url(self, result: dict[str, Any]) -> str | None:
+        for key in ("image_url", "url", "uri"):
+            value = result.get(key)
+            if isinstance(value, str) and value.startswith(("http://", "https://")):
+                return value
+        return None
+
 
 class _AIJobWorker(ManagedWorker):
     def __init__(self, service: AIJobService) -> None:
@@ -181,5 +221,6 @@ class _AIJobWorker(ManagedWorker):
                 self.service._publish(job, "failed", error=str(exc))
             else:
                 self.service._publish(job, "succeeded", result=result)
+                self.service._maybe_submit_followup_video(job, result)
             finally:
                 self.service._jobs.task_done()

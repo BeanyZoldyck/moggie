@@ -98,6 +98,8 @@ class MogMirrorTests(unittest.TestCase):
         self.assertEqual(job_ids, ["job-1"])
         self.assertEqual([kind for kind, _ in service.submitted], ["mog_mirror.caricature"])
         self.assertTrue(all(payload["has_crop"] for _, payload in service.submitted))
+        self.assertTrue(service.submitted[0][1]["request_pika_video"])
+        self.assertIn("video_prompt", service.submitted[0][1])
 
     def test_live_score_window_runs_for_ten_seconds(self) -> None:
         screen = MogMirrorScreen(SimpleNamespace())

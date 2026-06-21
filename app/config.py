@@ -83,7 +83,7 @@ class MoggieConfig:
 
 
 def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
-    env = environ or os.environ
+    env = environ or _load_environment()
     app_env = _enum(env, "MOGGIE_ENV", "development", ENVIRONMENTS)
 
     return MoggieConfig(
@@ -204,3 +204,26 @@ def _path(env: Mapping[str, str], key: str, default: str, *, expand_user: bool =
     raw = env.get(key, default).strip()
     path = Path(raw)
     return path.expanduser() if expand_user else path
+
+
+def _load_environment() -> Mapping[str, str]:
+    loaded = dict(os.environ)
+    env_path = Path(".env")
+    if not env_path.exists():
+        return loaded
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in loaded:
+            continue
+        loaded[key] = _parse_env_value(value.strip())
+    return loaded
+
+
+def _parse_env_value(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value

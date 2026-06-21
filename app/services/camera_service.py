@@ -173,7 +173,8 @@ class CameraService:
                 return self._latest_frame
 
         display_frame = self._resize(frame, self.camera_width, self.camera_height)
-        display_frame = self._cv2.flip(display_frame, 1)
+        if hasattr(self._cv2, "flip"):
+            display_frame = self._cv2.flip(display_frame, 1)
         cv_frame = self._resize(display_frame, self.cv_width, self.cv_height)
         latest = CameraFrame(
             display_bgr=display_frame,

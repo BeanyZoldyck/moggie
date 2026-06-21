@@ -1,6 +1,7 @@
 import pygame
 
 from .common import draw_text, load_image
+from .game_logic import normalize_winner
 
 
 class WinScreen:
@@ -24,14 +25,18 @@ class WinScreen:
         return None
 
     def draw(self, screen, winner, player_one_score, player_two_score):
+        winner = normalize_winner(winner, player_one_score, player_two_score)
+
         if winner == "player_one" and self.player_one_win:
             screen.blit(self.player_one_win, (0, 0))
         elif winner == "player_two" and self.player_two_win:
             screen.blit(self.player_two_win, (0, 0))
-        elif self.tie:
+        elif winner == "tie" and self.tie:
             screen.blit(self.tie, (0, 0))
         else:
             screen.fill((20, 8, 45))
+            label = "TIE" if winner == "tie" else f"{winner.replace('_', ' ').upper()} WINS"
+            draw_text(screen, label, self.small_font, (255, 255, 255), (640, 500))
 
         draw_text(
             screen,

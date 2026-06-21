@@ -158,6 +158,38 @@ class EventBusAndWorkerTests(unittest.TestCase):
         self.assertEqual(result["kind"], "image")
         self.assertEqual(result["uri"], "mock://image/Ada")
 
+    def test_midjourney_image_success_enqueues_pika_video_followup(self) -> None:
+        bus = EventBus()
+        video_client = RecordingVideoClient()
+        service = AIJobService(
+            event_bus=bus,
+            image_client=PublicImageClient(),
+            video_client=video_client,
+            timeout_seconds=2,
+        )
+
+        service.start()
+        try:
+            service.submit(
+                "mog_mirror.caricature",
+                {
+                    "display_name": "Ada",
+                    "image_bytes": b"jpeg",
+                    "request_pika_video": True,
+                    "video_prompt": "make the win cinematic",
+                },
+            )
+            service._jobs.join()
+        finally:
+            service.stop()
+
+        events = [event.payload for event in bus.drain() if event.type == EVENT_AI_JOB_UPDATE]
+        kinds = [event["metadata"].get("kind") for event in events]
+        self.assertIn("mog_mirror.caricature", kinds)
+        self.assertIn("mog_mirror.victory_video", kinds)
+        self.assertEqual(video_client.calls[0]["image_url"], "https://cdn.midjourney.test/winner.png")
+        self.assertEqual(video_client.calls[0]["prompt"], "make the win cinematic")
+
     def test_ai_job_service_uses_fal_pika_client_only_when_enabled_and_configured(self) -> None:
         bus = EventBus()
         configured = AIJobService.from_config(
@@ -190,6 +222,33 @@ class EventBusAndWorkerTests(unittest.TestCase):
                 return drained
             time.sleep(0.01)
         return drained
+
+
+class PublicImageClient:
+    async def generate_caricature(self, image_bytes: bytes, prompt: str, metadata: dict[str, object]) -> dict[str, object]:
+        return {
+            "provider": "midjourney",
+            "kind": "image",
+            "image_url": "https://cdn.midjourney.test/winner.png",
+            "prompt": prompt,
+            "bytes": len(image_bytes),
+            "metadata": metadata,
+        }
+
+
+class RecordingVideoClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def generate_video(self, image_url: str, prompt: str, metadata: dict[str, object]) -> dict[str, object]:
+        self.calls.append({"image_url": image_url, "prompt": prompt, "metadata": metadata})
+        return {
+            "provider": "pika",
+            "kind": "video",
+            "video_url": "https://cdn.pika.test/replay.mp4",
+            "image_url": image_url,
+            "prompt": prompt,
+        }
 
 
 if __name__ == "__main__":
