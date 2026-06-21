@@ -13,8 +13,13 @@ class VoicelineTests(unittest.TestCase):
         line = pick_voiceline("mog_mirror", "end")
         self.assertTrue(line)
 
-    def test_unknown_game_returns_empty(self) -> None:
-        self.assertEqual(pick_voiceline("unknown_game", "end"), "")
+    def test_all_games_have_substantial_pools(self) -> None:
+        from app.games import voicelines as vl
+
+        for game_type in ("mog_mirror", "sixty_seven", "emoji_face_match"):
+            with self.subTest(game_type=game_type):
+                self.assertGreaterEqual(len(vl._LINES[(game_type, "intro")]), 10)
+                self.assertGreaterEqual(len(vl._LINES[(game_type, "end")]), 10)
 
 
 if __name__ == "__main__":

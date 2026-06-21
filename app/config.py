@@ -201,7 +201,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         ai_poll_interval_seconds=_int(env, "MOGGIE_AI_POLL_INTERVAL_SECONDS", 2, 1, 30),
         enable_voice=_bool(env, "MOGGIE_ENABLE_VOICE", True),
         deepgram_api_key=_str(env, "DEEPGRAM_API_KEY", ""),
-        deepgram_voice_model=_str(env, "MOGGIE_DEEPGRAM_VOICE_MODEL", "aura-2-zeus-en"),
+        deepgram_voice_model=_str(env, "MOGGIE_DEEPGRAM_VOICE_MODEL", "aura-2-atlas-en"),
     )
 
 

@@ -21,11 +21,11 @@ class VoiceService:
         self,
         *,
         api_key: str,
-        model: str = "aura-2-zeus-en",
+        model: str = "aura-2-atlas-en",
         enabled: bool = True,
     ) -> None:
         self.api_key = api_key.strip()
-        self.model = model.strip() or "aura-2-zeus-en"
+        self.model = model.strip() or "aura-2-atlas-en"
         self.enabled = enabled and bool(self.api_key)
         self._queue: Queue[str] = Queue()
         self._worker = threading.Thread(target=self._run, name="moggie-voice-worker", daemon=True)
