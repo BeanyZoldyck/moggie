@@ -197,18 +197,22 @@ class LeaderboardServiceTests(unittest.TestCase):
         self.assertEqual(entries[0]["display_name"], "Emoji")
         self.assertEqual(entries[0]["score"], 300)
 
-    def test_redis_failures_raise_when_redis_is_configured(self) -> None:
+    def test_redis_failures_fall_back_to_sqlite_for_score_recording(self) -> None:
         service = LeaderboardService(self.db_path, cache=FailingCache())
         session = service.create_session("mog_mirror")
 
-        with self.assertRaises(RuntimeError):
-            service.record_score(
-                session_id=session.id,
-                player_display_name="Offline Cache",
-                game_type="mog_mirror",
-                score=77,
-                created_at="2026-01-01T00:00:00+00:00",
-            )
+        service.record_score(
+            session_id=session.id,
+            player_display_name="Offline Cache",
+            game_type="mog_mirror",
+            score=77,
+            created_at="2026-01-01T00:00:00+00:00",
+        )
+        entries = service.top_scores("mog_mirror")
+
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["display_name"], "Offline Cache")
+        self.assertEqual(entries[0]["score"], 77)
 
     def test_all_planned_game_types_are_supported(self) -> None:
         service = LeaderboardService(self.db_path)

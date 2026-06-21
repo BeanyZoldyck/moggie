@@ -216,15 +216,21 @@ class LeaderboardService:
             )
             connection.commit()
 
-        if self.cache is not None:
-            self._index_score_in_redis(
-                score_record.id,
-                game_type,
-                score,
-                score_record.created_at,
-                player.display_name,
-                label,
-            )
+        if self._redis_active():
+            try:
+                self._index_score_in_redis(
+                    score_record.id,
+                    game_type,
+                    score,
+                    score_record.created_at,
+                    player.display_name,
+                    label,
+                )
+            except Exception as exc:
+                LOGGER.warning(
+                    "Redis leaderboard write failed; score persisted in SQLite only: %s",
+                    exc,
+                )
         rank = self.rank_for_score(score_record.id)
         with connect(self.db_path) as connection:
             connection.execute(
@@ -251,31 +257,36 @@ class LeaderboardService:
     def top_scores(self, game_type: str, limit: int = 10) -> list[LeaderboardEntry]:
         self._validate_game_type(game_type)
         limit = max(1, min(100, limit))
-        if self.cache is None:
+        if not self._redis_active():
             return self._query_top_scores(game_type, limit)
-        redis = self._require_redis()
-        members = redis.zrevrange(self._leaderboard_key(game_type), 0, limit - 1)
-        entries: list[LeaderboardEntry] = []
-        for member in members:
-            score_id = self._score_id_from_member(member)
-            if not score_id:
-                continue
-            row = redis.hgetall(self._score_hash_key(score_id))
-            if not row:
-                continue
-            try:
-                score_value = int(row.get("score", "0"))
-            except ValueError:
-                continue
-            entries.append(
-                {
-                    "display_name": row.get("display_name", "Unknown"),
-                    "score": score_value,
-                    "label": row.get("label") or None,
-                    "created_at": row.get("created_at", ""),
-                }
-            )
-        return entries
+        try:
+            redis = self.cache
+            assert redis is not None
+            members = redis.zrevrange(self._leaderboard_key(game_type), 0, limit - 1)
+            entries: list[LeaderboardEntry] = []
+            for member in members:
+                score_id = self._score_id_from_member(member)
+                if not score_id:
+                    continue
+                row = redis.hgetall(self._score_hash_key(score_id))
+                if not row:
+                    continue
+                try:
+                    score_value = int(row.get("score", "0"))
+                except ValueError:
+                    continue
+                entries.append(
+                    {
+                        "display_name": row.get("display_name", "Unknown"),
+                        "score": score_value,
+                        "label": row.get("label") or None,
+                        "created_at": row.get("created_at", ""),
+                    }
+                )
+            return entries
+        except Exception as exc:
+            LOGGER.warning("Redis leaderboard read failed; falling back to SQLite: %s", exc)
+            return self._query_top_scores(game_type, limit)
 
     def record_media_asset(
         self,
@@ -331,20 +342,27 @@ class LeaderboardService:
             return [dict(row) for row in rows]
 
     def rank_for_score(self, score_id: str) -> int:
-        if self.cache is None:
+        if not self._redis_active():
             return self._rank_for_score_sqlite(score_id)
-        redis = self._require_redis()
-        score_row = redis.hgetall(self._score_hash_key(score_id))
-        if not score_row:
-            raise ValueError(f"Unknown score: {score_id}")
-        game_type = score_row.get("game_type")
-        member = score_row.get("member")
-        if not game_type or not member:
-            raise ValueError(f"Incomplete leaderboard metadata for score: {score_id}")
-        rank = redis.zrevrank(self._leaderboard_key(game_type), member)
-        if rank is None:
-            raise ValueError(f"Unknown score: {score_id}")
-        return rank + 1
+        try:
+            redis = self.cache
+            assert redis is not None
+            score_row = redis.hgetall(self._score_hash_key(score_id))
+            if not score_row:
+                return self._rank_for_score_sqlite(score_id)
+            game_type = score_row.get("game_type")
+            member = score_row.get("member")
+            if not game_type or not member:
+                raise ValueError(f"Incomplete leaderboard metadata for score: {score_id}")
+            rank = redis.zrevrank(self._leaderboard_key(game_type), member)
+            if rank is None:
+                return self._rank_for_score_sqlite(score_id)
+            return rank + 1
+        except ValueError:
+            raise
+        except Exception as exc:
+            LOGGER.warning("Redis rank lookup failed; falling back to SQLite: %s", exc)
+            return self._rank_for_score_sqlite(score_id)
 
     def _rank_for_score_sqlite(self, score_id: str) -> int:
         with connect(self.db_path) as connection:
@@ -389,12 +407,12 @@ class LeaderboardService:
             )
             return [dict(row) for row in rows]
 
-    def _require_redis(self) -> RedisCacheService:
+    def _redis_active(self) -> bool:
         if self.cache is None:
-            raise RuntimeError("Redis leaderboard is enabled as authoritative, but no Redis cache service exists.")
+            return False
         if not self.cache.available:
-            raise RuntimeError("Redis leaderboard is unavailable.")
-        return self.cache
+            self.cache.connect()
+        return self.cache.available
 
     def _leaderboard_key(self, game_type: str) -> str:
         return f"leaderboard:{game_type}:scores"
@@ -411,7 +429,9 @@ class LeaderboardService:
         display_name: str,
         label: str | None,
     ) -> None:
-        redis = self._require_redis()
+        redis = self.cache
+        if redis is None or not redis.available:
+            raise RuntimeError("Redis leaderboard is unavailable.")
         member = self._member_for_score(created_at, score_id)
         redis.zadd(self._leaderboard_key(game_type), member, float(score))
         redis.hset_many(
