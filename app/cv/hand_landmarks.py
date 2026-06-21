@@ -45,6 +45,7 @@ class HandLandmarkService:
 
         self._hands = self._mp.solutions.hands.Hands(
             static_image_mode=False,
+            model_complexity=0,
             max_num_hands=self.max_hands,
             min_detection_confidence=self.min_confidence,
             min_tracking_confidence=self.min_confidence,

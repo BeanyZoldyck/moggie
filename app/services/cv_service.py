@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from threading import Lock
+from time import monotonic
 from typing import Any
 
 from app.config import MoggieConfig
@@ -90,6 +91,7 @@ class CVService:
     def stop(self) -> None:
         self._worker.stop()
         self.hand_landmarks.stop()
+        self.face_detection.stop()
 
     def latest_state(self) -> LatestCVState:
         with self._lock:
@@ -126,6 +128,7 @@ class CVService:
         expressions = [
             {"smile": 0.85},
             {"mouth_open": 0.9},
+            {"tongue_out": 0.9, "mouth_open": 0.6},
             {"left_eye_closed": 0.9, "right_eye_closed": 0.88},
             {"left_eye_closed": 0.9, "right_eye_closed": 0.1},
             {"neutral": 1.0},
@@ -237,6 +240,7 @@ class _CVWorker(ManagedWorker):
         frame_number = 0
         interval_seconds = 1.0 / self.service.cv_fps
         while not self.should_stop:
+            started_at = monotonic()
             if self.service.mock_events:
                 for event in self.service._build_mock_events(frame_number):
                     self.service.publish(event)
@@ -244,4 +248,5 @@ class _CVWorker(ManagedWorker):
                 for event in self.service._build_camera_events():
                     self.service.publish(event)
             frame_number += 1
-            self.wait(interval_seconds)
+            elapsed = monotonic() - started_at
+            self.wait(max(0.001, interval_seconds - elapsed))
