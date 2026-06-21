@@ -7,22 +7,24 @@ from typing import Callable, Mapping
 from app.cv.expression_features import classify_expression
 
 
-SUPPORTED_EXPRESSIONS = ("smile", "surprised", "tongue_out", "eyes_closed", "wink", "neutral")
+SUPPORTED_EXPRESSIONS = ("smile", "surprised", "tongue_out", "wink", "neutral", "look_left", "look_right")
 EXPRESSION_LABELS = {
     "smile": "SMILE",
     "surprised": "SURPRISE",
     "tongue_out": "TONGUE OUT",
-    "eyes_closed": "EYES CLOSED",
     "wink": "WINK",
     "neutral": "DEADPAN",
+    "look_left": "LOOK LEFT",
+    "look_right": "LOOK RIGHT",
 }
 EXPRESSION_GLYPHS = {
     "smile": ":)",
     "surprised": ":O",
     "tongue_out": ":P",
-    "eyes_closed": "-_-",
     "wink": ";)",
     "neutral": ":|",
+    "look_left": "L",
+    "look_right": "R",
 }
 
 ExpressionPredicate = Callable[[Mapping[str, float]], bool]
@@ -69,16 +71,18 @@ def _target_tongue_out(features: Mapping[str, float]) -> bool:
     return features.get("tongue_out", 0.0) >= 0.65 and features.get("mouth_open", 0.0) >= 0.35
 
 
-def _target_eyes_closed(features: Mapping[str, float]) -> bool:
-    left_closed = features.get("left_eye_closed", 0.0)
-    right_closed = features.get("right_eye_closed", 0.0)
-    return max(features.get("eyes_closed", 0.0), min(left_closed, right_closed)) >= 0.60
-
-
 def _target_wink(features: Mapping[str, float]) -> bool:
     left_closed = features.get("left_eye_closed", 0.0)
     right_closed = features.get("right_eye_closed", 0.0)
     return max(left_closed, right_closed, features.get("wink", 0.0)) >= 0.60 and abs(left_closed - right_closed) >= 0.22
+
+
+def _target_look_left(features: Mapping[str, float]) -> bool:
+    return features.get("look_left", 0.0) >= 0.60
+
+
+def _target_look_right(features: Mapping[str, float]) -> bool:
+    return features.get("look_right", 0.0) >= 0.60
 
 
 def _target_neutral(features: Mapping[str, float]) -> bool:
@@ -86,8 +90,9 @@ def _target_neutral(features: Mapping[str, float]) -> bool:
         features.get("smile", 0.0),
         features.get("mouth_open", 0.0),
         features.get("tongue_out", 0.0),
-        features.get("eyes_closed", 0.0),
         features.get("wink", 0.0),
+        features.get("look_left", 0.0),
+        features.get("look_right", 0.0),
     )
     return active < 0.45
 
@@ -100,9 +105,10 @@ EXPRESSION_PREDICATES: dict[str, ExpressionPredicate] = {
     "smile": _target_smile,
     "surprised": _target_surprised,
     "tongue_out": _target_tongue_out,
-    "eyes_closed": _target_eyes_closed,
     "wink": _target_wink,
     "neutral": _target_neutral,
+    "look_left": _target_look_left,
+    "look_right": _target_look_right,
 }
 
 

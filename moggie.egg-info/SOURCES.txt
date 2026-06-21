@@ -10,6 +10,7 @@ app/ai/fal_pika_client.py
 app/ai/image_generation_client.py
 app/ai/midjourney_mcp_client.py
 app/ai/mock_clients.py
+app/ai/pika_mcp_client.py
 app/ai/text_generation_client.py
 app/core/__init__.py
 app/core/app_event.py
@@ -36,7 +37,6 @@ app/models/media_asset.py
 app/models/player.py
 app/models/score.py
 app/models/session.py
-app/moggi/moggiPyGame.py
 app/services/__init__.py
 app/services/ai_job_service.py
 app/services/camera_service.py
@@ -70,6 +70,7 @@ app/util/ids.py
 app/util/images.py
 app/util/logging.py
 app/util/time.py
+app/util/video_playback.py
 moggie.egg-info/PKG-INFO
 moggie.egg-info/SOURCES.txt
 moggie.egg-info/dependency_links.txt
@@ -79,11 +80,14 @@ tests/test_camera_service.py
 tests/test_config.py
 tests/test_event_bus_and_workers.py
 tests/test_expression_features.py
+tests/test_face_detection.py
 tests/test_fal_pika_client.py
 tests/test_leaderboards.py
 tests/test_midjourney_mcp_client.py
 tests/test_mog_mirror.py
+tests/test_pika_mcp_client.py
 tests/test_shell_navigation.py
 tests/test_shell_runtime.py
+tests/test_sixseven_rendering.py
 tests/test_sixty_seven_counter.py
 tests/test_zone_assignment.py
