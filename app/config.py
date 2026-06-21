@@ -23,6 +23,7 @@ class MoggieConfig:
     fullscreen: bool
     window_width: int
     window_height: int
+    target_fps: int
     placeholder_frames: int
     db_path: Path
     enable_redis_leaderboard_cache: bool
@@ -35,6 +36,7 @@ class MoggieConfig:
     camera_index: int
     camera_width: int
     camera_height: int
+    camera_fps: int
     camera_retry_seconds: int
     cv_width: int
     cv_height: int
@@ -53,6 +55,9 @@ class MoggieConfig:
     sixty_seven_require_both_hands: bool
     sixty_seven_min_confidence: float
     sixty_seven_rep_cooldown_ms: int
+    sixty_seven_extend_threshold: float
+    sixty_seven_return_threshold: float
+    sixty_seven_min_swing: float
     emoji_mode: str
     emoji_max_faces: int
     emoji_round_seconds: int
@@ -86,6 +91,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         fullscreen=_bool(env, "MOGGIE_FULLSCREEN", False),
         window_width=_int(env, "MOGGIE_WINDOW_WIDTH", 1280, 320, 7680),
         window_height=_int(env, "MOGGIE_WINDOW_HEIGHT", 720, 240, 4320),
+        target_fps=_int(env, "MOGGIE_TARGET_FPS", 30, 1, 120),
         placeholder_frames=_int(env, "MOGGIE_PLACEHOLDER_FRAMES", 0, 0, 1_000_000),
         db_path=_path(env, "MOGGIE_DB_PATH", "./data/moggie.sqlite"),
         enable_redis_leaderboard_cache=_bool(env, "MOGGIE_ENABLE_REDIS_LEADERBOARD_CACHE", True),
@@ -98,6 +104,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         camera_index=_int(env, "MOGGIE_CAMERA_INDEX", 0, 0, 16),
         camera_width=_int(env, "MOGGIE_CAMERA_WIDTH", 640, 160, 3840),
         camera_height=_int(env, "MOGGIE_CAMERA_HEIGHT", 480, 120, 2160),
+        camera_fps=_int(env, "MOGGIE_CAMERA_FPS", 30, 1, 120),
         camera_retry_seconds=_int(env, "MOGGIE_CAMERA_RETRY_SECONDS", 3, 1, 60),
         cv_width=_int(env, "MOGGIE_CV_WIDTH", 320, 80, 1920),
         cv_height=_int(env, "MOGGIE_CV_HEIGHT", 240, 60, 1080),
@@ -116,6 +123,9 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         sixty_seven_require_both_hands=_bool(env, "MOGGIE_67_REQUIRE_BOTH_HANDS", False),
         sixty_seven_min_confidence=_float(env, "MOGGIE_67_MIN_CONFIDENCE", 0.55, 0.0, 1.0),
         sixty_seven_rep_cooldown_ms=_int(env, "MOGGIE_67_REP_COOLDOWN_MS", 350, 0, 5000),
+        sixty_seven_extend_threshold=_float(env, "MOGGIE_67_EXTEND_THRESHOLD", 0.34, 0.05, 1.0),
+        sixty_seven_return_threshold=_float(env, "MOGGIE_67_RETURN_THRESHOLD", 0.30, 0.05, 1.0),
+        sixty_seven_min_swing=_float(env, "MOGGIE_67_MIN_SWING", 0.04, 0.0, 1.0),
         emoji_mode=_enum(env, "MOGGIE_EMOJI_MODE", "versus", GAME_MODES),
         emoji_max_faces=_int(env, "MOGGIE_EMOJI_MAX_FACES", 2, 1, 2),
         emoji_round_seconds=_int(env, "MOGGIE_EMOJI_ROUND_SECONDS", 30, 5, 180),

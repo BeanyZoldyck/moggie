@@ -51,6 +51,9 @@ class SixtySevenScreen:
                 counter=SixtySevenCounter(
                     min_confidence=config.sixty_seven_min_confidence,
                     cooldown_ms=config.sixty_seven_rep_cooldown_ms,
+                    extend_threshold=config.sixty_seven_extend_threshold,
+                    return_threshold=config.sixty_seven_return_threshold,
+                    min_delta=config.sixty_seven_min_swing,
                 ),
             )
             for index, zone in enumerate(zones)
