@@ -129,7 +129,7 @@ class PlayerSetupScreen:
                 color,
                 (rect.left + 400, rect.top + 105),
                 max_width=rect.width - 72,
-            )
+            ) # random comment so we can push
             if selected and self.cursor_visible:
                 cursor_x = min(value_rect.right + 6, rect.right - 32)
                 pygame.draw.line(
