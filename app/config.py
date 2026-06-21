@@ -37,6 +37,10 @@ class MoggieConfig:
     media_dir: Path
     save_snapshots: bool
     save_generated_media: bool
+    enable_s3_video_storage: bool
+    s3_bucket: str
+    s3_region: str
+    s3_prefix: str
     camera_backend: str
     camera_index: int
     camera_width: int
@@ -120,6 +124,10 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         media_dir=_path(env, "MOGGIE_MEDIA_DIR", "./media"),
         save_snapshots=_bool(env, "MOGGIE_SAVE_SNAPSHOTS", False),
         save_generated_media=_bool(env, "MOGGIE_SAVE_GENERATED_MEDIA", False),
+        enable_s3_video_storage=_bool(env, "MOGGIE_ENABLE_S3_VIDEO_STORAGE", False),
+        s3_bucket=_str(env, "MOGGIE_S3_BUCKET", ""),
+        s3_region=_str(env, "MOGGIE_S3_REGION", ""),
+        s3_prefix=_str(env, "MOGGIE_S3_PREFIX", ""),
         camera_backend=_enum(env, "MOGGIE_CAMERA_BACKEND", "opencv", CAMERA_BACKENDS),
         camera_index=_int(env, "MOGGIE_CAMERA_INDEX", 0, 0, 16),
         camera_width=_int(env, "MOGGIE_CAMERA_WIDTH", 640, 160, 3840),

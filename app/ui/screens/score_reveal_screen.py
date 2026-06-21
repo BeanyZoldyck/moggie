@@ -173,30 +173,46 @@ class ScoreRevealScreen:
             LOGGER.info("Recap: ready — tmp=%s saved=%s url=%s", path, saved_path, url)
 
     def _save_replay(self, tmp_path: Path, remote_url: str) -> Path | None:
-        """If MOGGIE_SAVE_GENERATED_MEDIA is set, copy the clip to MOGGIE_MEDIA_DIR
-        and record it in the DB. Returns the saved path (or None if saving is off)."""
+        """Persist generated recap media locally and/or to S3, then record in DB."""
         config = getattr(self.manager, "config", None)
-        if config is None or not getattr(config, "save_generated_media", False):
+        if config is None:
+            return None
+        save_local = bool(getattr(config, "save_generated_media", False))
+        save_s3 = bool(getattr(config, "enable_s3_video_storage", False))
+        if not save_local and not save_s3:
             return None
         try:
             game_type = self.manager.state.selected_game_type
-            media_dir: Path = config.media_dir
-            media_dir.mkdir(parents=True, exist_ok=True)
-            dest = media_dir / f"{game_type}_recap_{tmp_path.stem}.mp4"
-            shutil.copy2(tmp_path, dest)
-            # Record in DB so recent_media_assets() / the idle attract strip can show it.
             session_id = getattr(self.manager.state, "last_session_id", None)
             leaderboard = getattr(self.manager, "leaderboard_service", None)
+            local_dest: Path | None = None
+            if save_local:
+                media_dir: Path = config.media_dir
+                media_dir.mkdir(parents=True, exist_ok=True)
+                local_dest = media_dir / f"{game_type}_recap_{tmp_path.stem}.mp4"
+                shutil.copy2(tmp_path, local_dest)
             if leaderboard is not None and session_id is not None:
+                storage_mode = "local"
+                uri = str(local_dest) if local_dest is not None else remote_url
+                metadata: dict[str, Any] = {"remote_url": remote_url, "game_type": game_type}
+                storage = getattr(self.manager, "storage_service", None)
+                if save_s3 and storage is not None:
+                    upload = storage.upload_video(tmp_path, game_type, session_id)
+                    storage_mode = "s3"
+                    uri = upload["url"]
+                    metadata.update(upload)
+                    if local_dest is not None:
+                        metadata["local_path"] = str(local_dest)
                 leaderboard.record_media_asset(
                     session_id,
                     f"{game_type}.recap_video",
-                    str(dest),
-                    storage_mode="local",
-                    metadata={"remote_url": remote_url, "game_type": game_type},
+                    uri,
+                    storage_mode=storage_mode,
+                    metadata=metadata,
                 )
-            LOGGER.info("Recap saved to %s", dest)
-            return dest
+            if local_dest is not None:
+                LOGGER.info("Recap saved to %s", local_dest)
+            return local_dest
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("Recap save failed: %s", exc)
             return None

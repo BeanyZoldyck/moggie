@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from json import JSONDecodeError
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 LOGGER = logging.getLogger(__name__)
@@ -25,6 +26,15 @@ class RedisCacheService:
             self._client.ping()
         except Exception as exc:  # pragma: no cover - depends on optional service
             self._handle_failure(exc)
+
+    @property
+    def available(self) -> bool:
+        return self._client is not None
+
+    def require_client(self) -> Any:
+        if self._client is None:
+            raise RuntimeError("Redis client is not available")
+        return self._client
 
     def get_json(self, key: str) -> Any | None:
         if self._client is None:
@@ -54,6 +64,49 @@ class RedisCacheService:
             self._client.delete(key)
         except Exception as exc:  # pragma: no cover - depends on optional service
             self._handle_failure(exc)
+
+    def zadd(self, key: str, member: str, score: float) -> None:
+        client = self.require_client()
+        try:
+            client.zadd(key, {member: score})
+        except Exception as exc:  # pragma: no cover - depends on optional service
+            self._handle_failure(exc)
+            raise RuntimeError("Redis zadd failed") from exc
+
+    def zrevrange(self, key: str, start: int, stop: int) -> list[str]:
+        client = self.require_client()
+        try:
+            values: Sequence[str] = client.zrevrange(key, start, stop)
+            return list(values)
+        except Exception as exc:  # pragma: no cover - depends on optional service
+            self._handle_failure(exc)
+            raise RuntimeError("Redis zrevrange failed") from exc
+
+    def zrevrank(self, key: str, member: str) -> int | None:
+        client = self.require_client()
+        try:
+            result = client.zrevrank(key, member)
+        except Exception as exc:  # pragma: no cover - depends on optional service
+            self._handle_failure(exc)
+            raise RuntimeError("Redis zrevrank failed") from exc
+        return int(result) if result is not None else None
+
+    def hset_many(self, key: str, values: Mapping[str, str]) -> None:
+        client = self.require_client()
+        try:
+            client.hset(key, mapping=dict(values))
+        except Exception as exc:  # pragma: no cover - depends on optional service
+            self._handle_failure(exc)
+            raise RuntimeError("Redis hset failed") from exc
+
+    def hgetall(self, key: str) -> dict[str, str]:
+        client = self.require_client()
+        try:
+            raw: Mapping[str, str] = client.hgetall(key)
+            return dict(raw)
+        except Exception as exc:  # pragma: no cover - depends on optional service
+            self._handle_failure(exc)
+            raise RuntimeError("Redis hgetall failed") from exc
 
     def _handle_failure(self, exc: Exception) -> None:
         if not self._warned_failure:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -215,6 +216,15 @@ class LeaderboardService:
             )
             connection.commit()
 
+        if self.cache is not None:
+            self._index_score_in_redis(
+                score_record.id,
+                game_type,
+                score,
+                score_record.created_at,
+                player.display_name,
+                label,
+            )
         rank = self.rank_for_score(score_record.id)
         with connect(self.db_path) as connection:
             connection.execute(
@@ -226,8 +236,6 @@ class LeaderboardService:
                 (rank, score_record.id),
             )
             connection.commit()
-
-        self._delete_cache(self._cache_key(game_type))
         return Score(
             id=score_record.id,
             session_id=score_record.session_id,
@@ -243,16 +251,30 @@ class LeaderboardService:
     def top_scores(self, game_type: str, limit: int = 10) -> list[LeaderboardEntry]:
         self._validate_game_type(game_type)
         limit = max(1, min(100, limit))
-        if limit != 10:
+        if self.cache is None:
             return self._query_top_scores(game_type, limit)
-
-        cache_key = self._cache_key(game_type)
-        cached = self._get_cached_entries(cache_key)
-        if cached is not None:
-            return cached
-
-        entries = self._query_top_scores(game_type, limit)
-        self._set_cache(cache_key, entries)
+        redis = self._require_redis()
+        members = redis.zrevrange(self._leaderboard_key(game_type), 0, limit - 1)
+        entries: list[LeaderboardEntry] = []
+        for member in members:
+            score_id = self._score_id_from_member(member)
+            if not score_id:
+                continue
+            row = redis.hgetall(self._score_hash_key(score_id))
+            if not row:
+                continue
+            try:
+                score_value = int(row.get("score", "0"))
+            except ValueError:
+                continue
+            entries.append(
+                {
+                    "display_name": row.get("display_name", "Unknown"),
+                    "score": score_value,
+                    "label": row.get("label") or None,
+                    "created_at": row.get("created_at", ""),
+                }
+            )
         return entries
 
     def record_media_asset(
@@ -309,6 +331,22 @@ class LeaderboardService:
             return [dict(row) for row in rows]
 
     def rank_for_score(self, score_id: str) -> int:
+        if self.cache is None:
+            return self._rank_for_score_sqlite(score_id)
+        redis = self._require_redis()
+        score_row = redis.hgetall(self._score_hash_key(score_id))
+        if not score_row:
+            raise ValueError(f"Unknown score: {score_id}")
+        game_type = score_row.get("game_type")
+        member = score_row.get("member")
+        if not game_type or not member:
+            raise ValueError(f"Incomplete leaderboard metadata for score: {score_id}")
+        rank = redis.zrevrank(self._leaderboard_key(game_type), member)
+        if rank is None:
+            raise ValueError(f"Unknown score: {score_id}")
+        return rank + 1
+
+    def _rank_for_score_sqlite(self, score_id: str) -> int:
         with connect(self.db_path) as connection:
             row = connection.execute(
                 """
@@ -350,6 +388,66 @@ class LeaderboardService:
                 (game_type, limit),
             )
             return [dict(row) for row in rows]
+
+    def _require_redis(self) -> RedisCacheService:
+        if self.cache is None:
+            raise RuntimeError("Redis leaderboard is enabled as authoritative, but no Redis cache service exists.")
+        if not self.cache.available:
+            raise RuntimeError("Redis leaderboard is unavailable.")
+        return self.cache
+
+    def _leaderboard_key(self, game_type: str) -> str:
+        return f"leaderboard:{game_type}:scores"
+
+    def _score_hash_key(self, score_id: str) -> str:
+        return f"leaderboard:score:{score_id}"
+
+    def _index_score_in_redis(
+        self,
+        score_id: str,
+        game_type: str,
+        score: int,
+        created_at: str,
+        display_name: str,
+        label: str | None,
+    ) -> None:
+        redis = self._require_redis()
+        member = self._member_for_score(created_at, score_id)
+        redis.zadd(self._leaderboard_key(game_type), member, float(score))
+        redis.hset_many(
+            self._score_hash_key(score_id),
+            {
+                "score_id": score_id,
+                "member": member,
+                "game_type": game_type,
+                "display_name": display_name,
+                "score": str(score),
+                "label": label or "",
+                "created_at": created_at,
+            },
+        )
+
+    def _member_for_score(self, created_at: str, score_id: str) -> str:
+        # For equal scores, zrevrange breaks ties by reverse member order.
+        # Inverting timestamp keeps earlier scores ahead of later ones.
+        ts_ms = self._timestamp_ms(created_at)
+        inverted_ts = 9_999_999_999_999 - ts_ms
+        return f"{inverted_ts:013d}:{score_id}"
+
+    def _score_id_from_member(self, member: str) -> str:
+        if ":" not in member:
+            return ""
+        _, score_id = member.split(":", 1)
+        return score_id
+
+    def _timestamp_ms(self, created_at: str) -> int:
+        normalized = created_at.strip()
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp() * 1000)
 
     def _get_cached_entries(self, key: str) -> list[LeaderboardEntry] | None:
         if self.cache is None:

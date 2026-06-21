@@ -34,6 +34,10 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config.idle_attract_enabled)
         self.assertEqual(config.idle_timeout_seconds, 90)
         self.assertEqual(config.attract_rotation_seconds, 8)
+        self.assertFalse(config.enable_s3_video_storage)
+        self.assertEqual(config.s3_bucket, "")
+        self.assertEqual(config.s3_region, "")
+        self.assertEqual(config.s3_prefix, "")
 
     def test_invalid_enum_fails_fast(self) -> None:
         with self.assertRaises(ConfigError):
@@ -83,6 +87,21 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(config.target_fps, 24)
         self.assertEqual(config.redis_url, "redis://default:secret@example.redis:13364/0")
+
+    def test_s3_values_are_loaded_when_present(self) -> None:
+        config = load_config(
+            {
+                "MOGGIE_ENABLE_S3_VIDEO_STORAGE": "true",
+                "MOGGIE_S3_BUCKET": "moggie-videos",
+                "MOGGIE_S3_REGION": "us-east-1",
+                "MOGGIE_S3_PREFIX": "hackathon",
+            }
+        )
+
+        self.assertTrue(config.enable_s3_video_storage)
+        self.assertEqual(config.s3_bucket, "moggie-videos")
+        self.assertEqual(config.s3_region, "us-east-1")
+        self.assertEqual(config.s3_prefix, "hackathon")
 
 
 if __name__ == "__main__":

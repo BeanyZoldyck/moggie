@@ -46,6 +46,21 @@ class FakeAIJobService:
         return f"job-{len(self.submitted)}"
 
 
+class FakeStorageService:
+    def __init__(self) -> None:
+        self.uploads: list[tuple[Path, str, str]] = []
+
+    def upload_video(self, path: Path, game_type: str, session_id: str) -> dict[str, str]:
+        self.uploads.append((path, game_type, session_id))
+        key = f"moggie/{game_type}/{session_id}.mp4"
+        return {
+            "bucket": "moggie-videos",
+            "region": "us-east-1",
+            "key": key,
+            "url": f"https://moggie-videos.s3.us-east-1.amazonaws.com/{key}",
+        }
+
+
 def _make_screen(
     *,
     game_type: str = "mog_mirror",
@@ -76,9 +91,16 @@ def _make_screen(
         last_session_id="session-test",
     )
     manager = SimpleNamespace(
-        config=SimpleNamespace(enable_pika=enable_pika, save_generated_media=False),
+        config=SimpleNamespace(
+            enable_pika=enable_pika,
+            save_generated_media=False,
+            enable_s3_video_storage=False,
+            media_dir=Path("/tmp/moggie-media"),
+        ),
         ai_job_service=FakeAIJobService(),
         state=state,
+        storage_service=FakeStorageService(),
+        leaderboard_service=SimpleNamespace(record_media_asset=lambda *args, **kwargs: "media-test"),
     )
     return ScoreRevealScreen(manager)
 
@@ -187,6 +209,23 @@ class ScoreRevealReplayTests(unittest.TestCase):
             screen._start_replay()
         screen.handle_app_event(_succeeded("some-other-job"))
         self.assertEqual(screen.replay_phase, "generating")
+
+    def test_save_replay_uploads_to_s3_and_records_asset(self) -> None:
+        screen = _make_screen()
+        screen.manager.config.enable_s3_video_storage = True
+        calls: list[tuple[object, ...]] = []
+        screen.manager.leaderboard_service = SimpleNamespace(
+            record_media_asset=lambda *args, **kwargs: calls.append((*args, kwargs))
+        )
+
+        saved = screen._save_replay(Path("/tmp/recap.mp4"), "https://fal.media/recap.mp4")
+
+        self.assertIsNone(saved)
+        self.assertEqual(len(screen.manager.storage_service.uploads), 1)
+        self.assertEqual(len(calls), 1)
+        args, kwargs = calls[0][:-1], calls[0][-1]
+        self.assertEqual(args[2], "https://moggie-videos.s3.us-east-1.amazonaws.com/moggie/mog_mirror/session-test.mp4")
+        self.assertEqual(kwargs["storage_mode"], "s3")
 
 
 if __name__ == "__main__":

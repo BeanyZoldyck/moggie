@@ -3,7 +3,6 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
 
 from app.db import connect, initialize_database
 from app.services.leaderboard_service import LeaderboardService
@@ -11,31 +10,56 @@ from app.services.leaderboard_service import LeaderboardService
 
 class FakeCache:
     def __init__(self) -> None:
-        self.values: dict[str, Any] = {}
-        self.sets: list[tuple[str, Any, int]] = []
-        self.deletes: list[str] = []
+        self.hashes: dict[str, dict[str, str]] = {}
+        self.zsets: dict[str, dict[str, float]] = {}
 
-    def get_json(self, key: str) -> Any | None:
-        return self.values.get(key)
+    @property
+    def available(self) -> bool:
+        return True
 
-    def set_json(self, key: str, value: Any, ttl_seconds: int) -> None:
-        self.sets.append((key, value, ttl_seconds))
-        self.values[key] = value
+    def zadd(self, key: str, member: str, score: float) -> None:
+        self.zsets.setdefault(key, {})[member] = score
 
-    def delete(self, key: str) -> None:
-        self.deletes.append(key)
-        self.values.pop(key, None)
+    def zrevrange(self, key: str, start: int, stop: int) -> list[str]:
+        rows = list(self.zsets.get(key, {}).items())
+        rows.sort(key=lambda item: (item[1], item[0]), reverse=True)
+        if stop < start:
+            return []
+        return [member for member, _score in rows[start : stop + 1]]
+
+    def zrevrank(self, key: str, member: str) -> int | None:
+        members = self.zrevrange(key, 0, len(self.zsets.get(key, {})))
+        try:
+            return members.index(member)
+        except ValueError:
+            return None
+
+    def hset_many(self, key: str, values: dict[str, str]) -> None:
+        self.hashes[key] = dict(values)
+
+    def hgetall(self, key: str) -> dict[str, str]:
+        return dict(self.hashes.get(key, {}))
 
 
 class FailingCache:
-    def get_json(self, key: str) -> Any | None:
-        raise RuntimeError(f"get failed for {key}")
+    @property
+    def available(self) -> bool:
+        return True
 
-    def set_json(self, key: str, value: Any, ttl_seconds: int) -> None:
-        raise RuntimeError(f"set failed for {key}")
+    def zadd(self, key: str, member: str, score: float) -> None:
+        raise RuntimeError(f"zadd failed for {key}")
 
-    def delete(self, key: str) -> None:
-        raise RuntimeError(f"delete failed for {key}")
+    def zrevrange(self, key: str, start: int, stop: int) -> list[str]:
+        raise RuntimeError(f"zrevrange failed for {key}")
+
+    def zrevrank(self, key: str, member: str) -> int | None:
+        raise RuntimeError(f"zrevrank failed for {key}")
+
+    def hset_many(self, key: str, values: dict[str, str]) -> None:
+        raise RuntimeError(f"hset failed for {key}")
+
+    def hgetall(self, key: str) -> dict[str, str]:
+        raise RuntimeError(f"hgetall failed for {key}")
 
 
 class LeaderboardServiceTests(unittest.TestCase):
@@ -155,25 +179,7 @@ class LeaderboardServiceTests(unittest.TestCase):
 
         self.assertEqual(player_count, 1)
 
-    def test_redis_cache_hit_returns_cached_leaderboard(self) -> None:
-        cached = [
-            {
-                "display_name": "Cached",
-                "score": 101,
-                "label": "from redis",
-                "created_at": "2026-01-01T00:00:00+00:00",
-            }
-        ]
-        cache = FakeCache()
-        cache.values["leaderboard:mog_mirror:top10"] = cached
-        service = LeaderboardService(self.db_path, cache=cache, cache_ttl_seconds=45)
-
-        entries = service.top_scores("mog_mirror")
-
-        self.assertEqual(entries, cached)
-        self.assertEqual(cache.sets, [])
-
-    def test_cache_miss_refreshes_redis_from_sqlite(self) -> None:
+    def test_top_scores_are_served_from_redis_authoritative_data(self) -> None:
         cache = FakeCache()
         service = LeaderboardService(self.db_path, cache=cache, cache_ttl_seconds=45)
         session = service.create_session("emoji_face_match")
@@ -185,46 +191,24 @@ class LeaderboardServiceTests(unittest.TestCase):
             label="perfect lane",
             created_at="2026-01-01T00:00:00+00:00",
         )
-        cache.sets.clear()
 
         entries = service.top_scores("emoji_face_match")
 
         self.assertEqual(entries[0]["display_name"], "Emoji")
-        self.assertEqual(
-            cache.sets,
-            [("leaderboard:emoji_face_match:top10", entries, 45)],
-        )
+        self.assertEqual(entries[0]["score"], 300)
 
-    def test_score_write_invalidates_affected_leaderboard_key(self) -> None:
-        cache = FakeCache()
-        service = LeaderboardService(self.db_path, cache=cache)
-        session = service.create_session("sixty_seven")
-
-        service.record_score(
-            session_id=session.id,
-            player_display_name="Repper",
-            game_type="sixty_seven",
-            score=67,
-        )
-
-        self.assertEqual(cache.deletes, ["leaderboard:sixty_seven:top10"])
-
-    def test_redis_failures_fall_back_to_sqlite(self) -> None:
+    def test_redis_failures_raise_when_redis_is_configured(self) -> None:
         service = LeaderboardService(self.db_path, cache=FailingCache())
         session = service.create_session("mog_mirror")
 
-        service.record_score(
-            session_id=session.id,
-            player_display_name="Offline Cache",
-            game_type="mog_mirror",
-            score=77,
-            created_at="2026-01-01T00:00:00+00:00",
-        )
-        entries = service.top_scores("mog_mirror")
-
-        self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["display_name"], "Offline Cache")
-        self.assertEqual(entries[0]["score"], 77)
+        with self.assertRaises(RuntimeError):
+            service.record_score(
+                session_id=session.id,
+                player_display_name="Offline Cache",
+                game_type="mog_mirror",
+                score=77,
+                created_at="2026-01-01T00:00:00+00:00",
+            )
 
     def test_all_planned_game_types_are_supported(self) -> None:
         service = LeaderboardService(self.db_path)
