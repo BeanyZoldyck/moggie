@@ -6,20 +6,89 @@ Moggie is a native Python kiosk game for Raspberry Pi OS 64-bit Lite. It is desi
 
 Requirements:
 
-- Python 3.10+
+- Python 3.10-3.12. Use Python 3.12 on macOS; MediaPipe is not available for newer Python versions in all environments.
 - A virtual environment
 - Optional: Redis for leaderboard cache development
 - Optional: webcam for camera smoke tests
 
+### MacBook Setup From Scratch
+
+These steps are for a clean MacBook checkout with local webcam tracking, MediaPipe Hands, FaceMesh, and expression scoring enabled.
+
+1. Install Python 3.12 and Git if needed:
+
 ```bash
-python3 -m venv .venv
+brew install python@3.12 git
+```
+
+2. Clone the repo and use the Mac testing branch:
+
+```bash
+git clone git@github.com:BeanyZoldyck/moggie.git
+cd moggie
+git checkout macbook-testing
+```
+
+3. Create a Python 3.12 virtual environment. Do not use Python 3.13 or 3.14; current MediaPipe packages either do not install there or no longer expose the legacy `mp.solutions.face_mesh` / `mp.solutions.hands` API used by this app.
+
+```bash
+python3.12 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
-cp .env.example .env
+python -c "import mediapipe as mp; print(mp.__version__, hasattr(mp, 'solutions'))"
+```
+
+The expected MediaPipe check is `0.10.14 True`.
+
+4. Run the database initializer:
+
+```bash
+./scripts/init_db.sh
+```
+
+5. Grant camera access to the terminal app you use. On macOS, open System Settings -> Privacy & Security -> Camera and enable Terminal, iTerm, or VS Code. If OpenCV says camera access was denied, reset the prompt and rerun from the same terminal app:
+
+```bash
+tccutil reset Camera
+```
+
+6. Verify camera frames first:
+
+```bash
+python scripts/smoke_test_camera.py
+```
+
+7. Verify MediaPipe Hands and FaceMesh/expression tracking:
+
+```bash
+python scripts/smoke_test_cv.py
+```
+
+Successful output should show:
+
+```text
+MediaPipe: 0.10.14
+hand_backend=mediapipe face_backend=mediapipe face_enabled=True
+Hands: Hand landmark detector tracking up to 4 hands.
+Frame 1: hands=... faces=...
+```
+
+8. Start the app:
+
+```bash
 python -m app.main
 ```
 
 In development mode, `python -m app.main` opens the windowed native shell. Use `python -m app.main --frames 3` for a short startup smoke test that exits cleanly.
+
+If you need a temporary non-MediaPipe fallback while debugging camera or install issues:
+
+```bash
+MOGGIE_HAND_TRACKING_BACKEND=simple MOGGIE_FACE_TRACKING_BACKEND=cascade python -m app.main
+```
+
+That fallback uses rough hand contours and face boxes only; it does not provide FaceMesh landmarks or expression scoring.
 
 ## Demo Fallback Presets
 

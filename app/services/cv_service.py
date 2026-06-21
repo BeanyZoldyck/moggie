@@ -94,7 +94,13 @@ class CVService:
         return self._worker.is_running
 
     def start(self) -> None:
+        self.start_detectors()
         self._worker.start()
+
+    def start_detectors(self) -> None:
+        self.hand_landmarks.start()
+        if self.enable_face_detection:
+            self.face_detection.start()
 
     def stop(self) -> None:
         self._worker.stop()

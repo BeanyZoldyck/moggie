@@ -45,6 +45,15 @@ class FaceDetectionService:
         self._load_failed = False
         self._mesh_load_failed = False
 
+    def start(self) -> None:
+        cv2 = self._load_cv2()
+        if cv2 is None:
+            return
+        if self.backend == "mediapipe":
+            self._load_face_mesh()
+        else:
+            self._load_cascade(cv2)
+
     def detect(self, frame_bgr: Any) -> list[dict[str, Any]]:
         if frame_bgr is None:
             return []
@@ -145,7 +154,7 @@ class FaceDetectionService:
                 min_detection_confidence=0.5,
                 min_tracking_confidence=0.5,
             )
-        except (AttributeError, TypeError, ValueError):
+        except (AttributeError, TypeError, ValueError, RuntimeError):
             self._mesh_load_failed = True
             return None
         return self._face_mesh

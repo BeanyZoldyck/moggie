@@ -7,11 +7,11 @@ name = "moggie"
 version = "0.1.0"
 description = "Native Python Raspberry Pi kiosk party game."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "pygame>=2.5",
-    "opencv-python>=4.9",
-    "mediapipe>=0.10",
+    "opencv-python>=4.9,<4.12",
+    "mediapipe==0.10.14",
     "redis>=5.0",
     "boto3>=1.34",
     "requests>=2.32",
