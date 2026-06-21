@@ -270,10 +270,10 @@ class EmojiFaceMatchScreen:
                 lane.hits += 1
                 lane.streak += 1
                 lane.best_streak = max(lane.best_streak, lane.streak)
-                lane.feedback = f"HIT {expression_label(result.detected)}"
+                lane.feedback = f"HIT {expression_label(result.target)}"
             else:
                 lane.streak = 0
-                lane.feedback = f"MISS {expression_label(result.detected)}"
+                lane.feedback = f"MISS {expression_label(result.target)}"
             lane.feedback_until_ms = now_ms + 750
 
     def _clock_label(self) -> str:
