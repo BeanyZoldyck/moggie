@@ -14,6 +14,7 @@ from app.ai.base import (
 )
 from app.ai.fal_pika_client import FalPikaClient
 from app.ai.midjourney_mcp_client import MidjourneyMCPClient
+from app.ai.pika_mcp_client import PikaMCPClient
 from app.ai.mock_clients import (
     MockImageGenerationClient,
     MockTextGenerationClient,
@@ -73,7 +74,16 @@ class AIJobService:
             )
 
         video_client: VideoGenerationClient | None = None
-        if config.enable_pika and config.fal_key:
+        if config.enable_pika and config.pika_provider == "mcp":
+            video_client = PikaMCPClient(
+                mcp_url=config.pika_mcp_url,
+                bearer_token=config.pika_mcp_bearer_token,
+                token_store=config.pika_mcp_token_store,
+                generation_tool=config.pika_mcp_generation_tool,
+                upload_tool=config.pika_mcp_upload_tool,
+                timeout_seconds=config.ai_timeout_seconds,
+            )
+        elif config.enable_pika and config.fal_key:
             video_client = FalPikaClient(
                 api_key=config.fal_key,
                 model=config.pika_model,
@@ -136,6 +146,10 @@ class AIJobService:
         if "caricature" in kind or kind.endswith(".image") or kind == "image":
             return await self.image_client.generate_caricature(image_bytes, prompt, metadata)
         if "video" in kind:
+            image_mime_type = str(payload.get("image_mime_type") or "image/jpeg")
+            direct_image_generator = getattr(self.video_client, "generate_video_from_image", None)
+            if image_bytes and direct_image_generator is not None:
+                return await direct_image_generator(image_bytes, image_mime_type, prompt, metadata)
             image_url = str(payload.get("image_url") or payload.get("source_uri") or "mock://source")
             return await self.video_client.generate_video(image_url, prompt, metadata)
         if "vision" in kind or "expression" in kind:

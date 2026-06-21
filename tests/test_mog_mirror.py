@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from app.games.mog_mirror import crop_upper_body, label_for_aura, score_aura
 from app.ui.screens.mog_mirror_screen import MirrorLane, MogMirrorScreen
@@ -84,7 +85,7 @@ class MogMirrorTests(unittest.TestCase):
         self.assertEqual(job_ids, [])
         self.assertEqual(service.submitted, [])
 
-    def test_ai_submission_skips_pika_without_public_source_url(self) -> None:
+    def test_ai_submission_sends_original_crop_to_pika_when_enabled(self) -> None:
         service = FakeAIJobService()
         screen = MogMirrorScreen(
             SimpleNamespace(
@@ -93,13 +94,14 @@ class MogMirrorTests(unittest.TestCase):
             )
         )
 
-        job_ids = screen._submit_ai_jobs(MirrorLane(name="Mina", zone="p1"), object(), 88, "MOGGED OUT")
+        with patch("app.ui.screens.mog_mirror_screen.encode_bgr_jpeg", return_value=b"jpeg"):
+            job_ids = screen._submit_ai_jobs(MirrorLane(name="Mina", zone="p1"), object(), 88, "MOGGED OUT")
 
         self.assertEqual(job_ids, ["job-1"])
-        self.assertEqual([kind for kind, _ in service.submitted], ["mog_mirror.caricature"])
+        self.assertEqual([kind for kind, _ in service.submitted], ["mog_mirror.victory_video"])
         self.assertTrue(all(payload["has_crop"] for _, payload in service.submitted))
-        self.assertTrue(service.submitted[0][1]["request_pika_video"])
-        self.assertIn("video_prompt", service.submitted[0][1])
+        self.assertIn("image_bytes", service.submitted[0][1])
+        self.assertIn("prompt", service.submitted[0][1])
 
     def test_live_score_window_runs_for_ten_seconds(self) -> None:
         screen = MogMirrorScreen(SimpleNamespace())

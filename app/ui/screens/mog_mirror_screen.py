@@ -285,22 +285,17 @@ class MogMirrorScreen:
             "label": label,
             "has_crop": crop is not None,
         }
+        image_bytes = encode_bgr_jpeg(crop)
+        if image_bytes:
+            payload["image_bytes"] = image_bytes
+            payload["image_mime_type"] = "image/jpeg"
         if self.manager.config.enable_pika:
-            payload["request_pika_video"] = True
-            payload["video_prompt"] = (
+            payload["prompt"] = (
                 "Create a short, sensational arcade replay from this Mog Mirror portrait. "
                 "Make it glossy, dramatic, funny, and score-reveal worthy."
             )
-        if self.manager.config.enable_image_generation:
-            image_bytes = encode_bgr_jpeg(crop)
-            if image_bytes:
-                payload["image_bytes"] = image_bytes
-                payload["image_mime_type"] = "image/jpeg"
-            job_ids.append(service.submit("mog_mirror.caricature", payload))
-        if (
-            self.manager.config.enable_pika
-            and not self.manager.config.enable_image_generation
-            and (payload.get("image_url") or payload.get("source_uri"))
-        ):
             job_ids.append(service.submit("mog_mirror.victory_video", payload))
+            return job_ids
+        if self.manager.config.enable_image_generation:
+            job_ids.append(service.submit("mog_mirror.caricature", payload))
         return job_ids

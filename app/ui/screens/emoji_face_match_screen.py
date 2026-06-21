@@ -15,6 +15,7 @@ from app.ui import theme
 from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text, scaled_asset_image
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.face_overlay_renderer import FaceOverlayRenderer
+from app.util.images import encode_bgr_jpeg
 
 
 def _pygame() -> Any:
@@ -307,6 +308,7 @@ class EmojiFaceMatchScreen:
         if self.finished or self.session_id is None:
             return
         self.finished = True
+        ai_job_ids = self._submit_replay_ai_job()
         high_score = max((lane.score for lane in self.lanes), default=0)
         rows = []
         for lane in self.lanes:
@@ -325,6 +327,7 @@ class EmojiFaceMatchScreen:
                     "attempts": lane.attempts,
                     "best_streak": lane.best_streak,
                     "manual_override": self.manual_override,
+                    "ai_job_ids": ai_job_ids,
                 },
             )
             rows.append(
@@ -334,6 +337,7 @@ class EmojiFaceMatchScreen:
                     "label": label,
                     "rank": score_record.rank,
                     "winner": winner,
+                    "ai_job_ids": ai_job_ids,
                 }
             )
         self.manager.leaderboard_service.complete_session(
@@ -342,7 +346,42 @@ class EmojiFaceMatchScreen:
                 "mode": self.manager.config.emoji_mode,
                 "scores": {lane.name: lane.score for lane in self.lanes},
                 "hits": {lane.name: lane.hits for lane in self.lanes},
+                "ai_job_ids": ai_job_ids,
             },
         )
         self.manager.state.reveal_rows = rows
         self.manager.go_to("score_reveal")
+
+    def _submit_replay_ai_job(self) -> list[str]:
+        if not self.manager.config.enable_pika:
+            return []
+        service = getattr(self.manager, "ai_job_service", None)
+        camera_service = getattr(self.manager, "camera_service", None)
+        if service is None or camera_service is None:
+            return []
+        image_bytes = encode_bgr_jpeg(camera_service.latest_display_frame())
+        if not image_bytes:
+            return []
+        score_summary = ", ".join(
+            f"{lane.name}: {lane.score} points, {lane.hits}/{lane.attempts} hits, best streak {lane.best_streak}"
+            for lane in self.lanes
+        )
+        prompt = (
+            "Generate a viral replay clip for an arcade Emoji Face Match battle. "
+            f"Use the players in the image as the source. Results: {score_summary}. "
+            "Make it fast, funny, expressive, and meme-ready with dramatic zooms, emoji energy, "
+            "reaction cuts, and a celebratory winner beat."
+        )
+        return [
+            service.submit(
+                "emoji_face_match.viral_replay_video",
+                {
+                    "game_type": "emoji_face_match",
+                    "scores": {lane.name: lane.score for lane in self.lanes},
+                    "hits": {lane.name: lane.hits for lane in self.lanes},
+                    "image_bytes": image_bytes,
+                    "image_mime_type": "image/jpeg",
+                    "prompt": prompt,
+                },
+            )
+        ]

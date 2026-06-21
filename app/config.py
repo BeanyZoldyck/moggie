@@ -15,6 +15,7 @@ FALSE_VALUES = {"0", "false", "no", "n", "off"}
 ENVIRONMENTS = {"development", "production", "test"}
 GAME_MODES = {"versus", "solo", "alternating"}
 STORAGE_MODES = {"none", "local", "usb"}
+PIKA_PROVIDERS = {"mcp", "fal"}
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,12 @@ class MoggieConfig:
     midjourney_client_secret: str
     enable_llm_labels: bool
     enable_qnx_subsystem: bool
+    pika_provider: str
+    pika_mcp_url: str
+    pika_mcp_bearer_token: str
+    pika_mcp_token_store: Path
+    pika_mcp_generation_tool: str
+    pika_mcp_upload_tool: str
     fal_key: str
     pika_model: str
     ai_timeout_seconds: int
@@ -145,6 +152,17 @@ def load_config(environ: Mapping[str, str] | None = None) -> MoggieConfig:
         midjourney_client_secret=_str(env, "MOGGIE_MIDJOURNEY_CLIENT_SECRET", ""),
         enable_llm_labels=_bool(env, "MOGGIE_ENABLE_LLM_LABELS", False),
         enable_qnx_subsystem=_bool(env, "MOGGIE_ENABLE_QNX_SUBSYSTEM", False),
+        pika_provider=_enum(env, "MOGGIE_PIKA_PROVIDER", "mcp", PIKA_PROVIDERS),
+        pika_mcp_url=_str(env, "MOGGIE_PIKA_MCP_URL", "https://mcp.pika.me/api/mcp"),
+        pika_mcp_bearer_token=_str(env, "MOGGIE_PIKA_MCP_BEARER_TOKEN", ""),
+        pika_mcp_token_store=_path(
+            env,
+            "MOGGIE_PIKA_MCP_TOKEN_STORE",
+            "~/.config/moggie/pika_mcp_oauth.json",
+            expand_user=True,
+        ),
+        pika_mcp_generation_tool=_str(env, "MOGGIE_PIKA_MCP_GENERATION_TOOL", ""),
+        pika_mcp_upload_tool=_str(env, "MOGGIE_PIKA_MCP_UPLOAD_TOOL", ""),
         fal_key=_str(env, "FAL_KEY", ""),
         pika_model=_str(env, "MOGGIE_PIKA_MODEL", "fal-ai/pika/v2/turbo/image-to-video"),
         ai_timeout_seconds=_int(env, "MOGGIE_AI_TIMEOUT_SECONDS", 45, 1, 300),

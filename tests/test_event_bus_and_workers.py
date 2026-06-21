@@ -13,6 +13,7 @@ from app.core.app_event import (
 from app.core.event_bus import EventBus
 from app.ai.fal_pika_client import FalPikaClient
 from app.ai.mock_clients import MockVideoGenerationClient
+from app.ai.pika_mcp_client import PikaMCPClient
 from app.config import load_config
 from app.services.ai_job_service import AIJobService
 from app.services.cv_service import CVService
@@ -190,23 +191,65 @@ class EventBusAndWorkerTests(unittest.TestCase):
         self.assertEqual(video_client.calls[0]["image_url"], "https://cdn.midjourney.test/winner.png")
         self.assertEqual(video_client.calls[0]["prompt"], "make the win cinematic")
 
+    def test_video_job_can_send_original_image_bytes_to_pika_client(self) -> None:
+        bus = EventBus()
+        video_client = RecordingDirectImageVideoClient()
+        service = AIJobService(event_bus=bus, video_client=video_client, timeout_seconds=2)
+
+        service.start()
+        try:
+            service.submit(
+                "mog_mirror.victory_video",
+                {
+                    "image_bytes": b"jpeg",
+                    "image_mime_type": "image/jpeg",
+                    "prompt": "viral replay",
+                },
+            )
+            service._jobs.join()
+        finally:
+            service.stop()
+
+        self.assertEqual(video_client.calls[0]["image_bytes"], b"jpeg")
+        self.assertEqual(video_client.calls[0]["image_mime_type"], "image/jpeg")
+        self.assertEqual(video_client.calls[0]["prompt"], "viral replay")
+
     def test_ai_job_service_uses_fal_pika_client_only_when_enabled_and_configured(self) -> None:
         bus = EventBus()
         configured = AIJobService.from_config(
             load_config(
                 {
                     "MOGGIE_ENABLE_PIKA": "true",
+                    "MOGGIE_PIKA_PROVIDER": "fal",
                     "FAL_KEY": "test-key",
                     "MOGGIE_PIKA_MODEL": "fal-ai/pika/v2.2/image-to-video",
                 }
             ),
             event_bus=bus,
         )
-        fallback = AIJobService.from_config(load_config({"MOGGIE_ENABLE_PIKA": "true"}), event_bus=bus)
+        fallback = AIJobService.from_config(load_config({"MOGGIE_ENABLE_PIKA": "true", "MOGGIE_PIKA_PROVIDER": "fal"}), event_bus=bus)
 
         self.assertIsInstance(configured.video_client, FalPikaClient)
         self.assertEqual(configured.video_client.model, "fal-ai/pika/v2.2/image-to-video")
         self.assertIsInstance(fallback.video_client, MockVideoGenerationClient)
+
+    def test_ai_job_service_uses_pika_mcp_client_by_default_when_pika_enabled(self) -> None:
+        bus = EventBus()
+        configured = AIJobService.from_config(
+            load_config(
+                {
+                    "MOGGIE_ENABLE_PIKA": "true",
+                    "MOGGIE_PIKA_MCP_URL": "https://mcp.pika.test/api/mcp",
+                    "MOGGIE_PIKA_MCP_BEARER_TOKEN": "token",
+                    "MOGGIE_PIKA_MCP_GENERATION_TOOL": "generate_reference_video",
+                }
+            ),
+            event_bus=bus,
+        )
+
+        self.assertIsInstance(configured.video_client, PikaMCPClient)
+        self.assertEqual(configured.video_client.mcp_url, "https://mcp.pika.test/api/mcp")
+        self.assertEqual(configured.video_client.generation_tool, "generate_reference_video")
 
     def _drain_until(
         self,
@@ -248,6 +291,35 @@ class RecordingVideoClient:
             "video_url": "https://cdn.pika.test/replay.mp4",
             "image_url": image_url,
             "prompt": prompt,
+        }
+
+
+class RecordingDirectImageVideoClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def generate_video(self, image_url: str, prompt: str, metadata: dict[str, object]) -> dict[str, object]:
+        raise AssertionError("direct image path should be used")
+
+    async def generate_video_from_image(
+        self,
+        image_bytes: bytes,
+        image_mime_type: str,
+        prompt: str,
+        metadata: dict[str, object],
+    ) -> dict[str, object]:
+        self.calls.append(
+            {
+                "image_bytes": image_bytes,
+                "image_mime_type": image_mime_type,
+                "prompt": prompt,
+                "metadata": metadata,
+            }
+        )
+        return {
+            "provider": "pika_mcp",
+            "kind": "video",
+            "video_url": "https://cdn.pika.test/replay.mp4",
         }
 
 
