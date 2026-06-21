@@ -36,6 +36,9 @@ class ScreenState:
     selected_game_type: str = GAMES[0].game_type
     player_names: list[str] = field(default_factory=list)
     reveal_rows: list[dict[str, Any]] = field(default_factory=list)
+    # Full both-sides camera frame from the last Mog Mirror round, used for the
+    # optional AI replay on the score-reveal screen.
+    reveal_replay_image: Any = None
 
 
 class ScreenManager:

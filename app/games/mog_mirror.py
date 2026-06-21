@@ -23,18 +23,44 @@ class MogMirrorGame:
     max_players = 2
 
 
-# Prompt for the start-of-game "mog avatar" image-to-video pass (fal.ai Pika).
-MOG_AVATAR_PROMPT = (
-    "Transform this person into their most 'mogged' anime version: a chiseled, razor-sharp jawline, "
-    "intense hunter eyes with a confident slight squint, flawless facial symmetry and ideal "
-    "facial thirds, high cheekbones and clean skin, hyper-attractive and cinematic. Keep their "
-    "identity clearly recognizable as the same person, with the same clothing color, hairstyles, etc. Subtle confident head movement, looking "
-    "straight at the camera, dramatic studio lighting."
+# Negative prompt for the optional post-battle AI replay (fal.ai Pika image-to-video).
+MOG_REPLAY_NEGATIVE_PROMPT = (
+    "distorted faces, deformed features, extra people, warped anatomy, blurry, low quality, "
+    "identity change, different people, text artifacts, glitch"
 )
-MOG_AVATAR_NEGATIVE_PROMPT = (
-    "distorted face, deformed features, extra faces, multiple people, warped jaw, asymmetric, "
-    "blurry, low quality, identity change, different person, cartoon, disfigured, glitch, changed ethnicity/race"
-)
+
+
+def build_replay_prompt(rows: list[dict[str, Any]] | None) -> str:
+    """Build a result-aware image-to-video prompt for the Mog battle replay.
+
+    The source image is a single frame spanning both sides of the camera (P1 on the
+    left, P2 on the right), so the prompt narrates the head-to-head outcome.
+    """
+    rows = rows or []
+    intro = (
+        "Cinematic instant-replay of a head-to-head 'Mog Mirror' face-off between two people "
+        "shown side by side (left vs right). "
+    )
+    style = (
+        " Sports-highlight energy, slow-motion glow-up, dramatic scoreboard vibes, glossy, "
+        "playful and over-the-top. Keep both people clearly recognizable."
+    )
+    winners = [row for row in rows if row.get("winner")]
+    if len(rows) >= 2 and len(winners) == 1:
+        winner = winners[0]
+        loser = next((row for row in rows if row is not winner), None)
+        result = (
+            f"{winner.get('display_name', 'The winner')} wins with a {winner.get('score', '?')} "
+            f"mog score and the {winner.get('label', 'mog')} aura"
+        )
+        if loser is not None:
+            result += f", defeating {loser.get('display_name', 'the rival')} ({loser.get('score', '?')})"
+        result += "."
+    elif rows and len(winners) >= 2:
+        result = "It's a dead-even tie — both sides equally mogged."
+    else:
+        result = "Two rivals trade mog energy in a close battle."
+    return intro + result + style
 
 
 def score_aura(

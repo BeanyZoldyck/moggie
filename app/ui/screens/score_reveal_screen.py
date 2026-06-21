@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+import queue
+from pathlib import Path
 from typing import Any
 
 from app.core.app_event import EVENT_AI_JOB_UPDATE, AppEvent
 from app.core.game_catalog import game_for_type
+from app.games.mog_mirror import MOG_REPLAY_NEGATIVE_PROMPT, build_replay_prompt
 from app.ui import theme
 from app.ui.render_utils import (
     FontSet,
@@ -14,6 +18,10 @@ from app.ui.render_utils import (
     draw_text,
     scaled_asset_image,
 )
+from app.util.images import encode_bgr_jpeg
+from app.util.video_playback import LoopingVideoPlayer, download_in_background
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _pygame() -> Any:
@@ -29,6 +37,12 @@ class ScoreRevealScreen:
         self.manager = manager
         self.fonts: FontSet | None = None
         self.ai_job_statuses: dict[str, dict[str, Any]] = {}
+        # Optional, opt-in AI replay video state.
+        self.replay_phase = "idle"  # idle | generating | downloading | ready | failed
+        self.replay_job_id: str | None = None
+        self.replay_player: LoopingVideoPlayer | None = None
+        self.replay_error = ""
+        self._replay_queue: "queue.Queue[Path | None]" = queue.Queue()
 
     def on_enter(self, **_: Any) -> None:
         active_job_ids = {
@@ -41,18 +55,31 @@ class ScoreRevealScreen:
             for job_id, status in self.ai_job_statuses.items()
             if job_id in active_job_ids
         }
+        self._close_replay()
+        self.replay_phase = "idle"
+        self.replay_job_id = None
+        self.replay_error = ""
+        self._replay_queue = queue.Queue()
 
     def handle_event(self, event: Any) -> None:
         pygame = _pygame()
         if event.type != pygame.KEYDOWN:
             return
+        if event.key == pygame.K_g:
+            if self.replay_phase in {"idle", "failed"} and self._can_generate_replay():
+                self._start_replay()
+            return
         if event.key in {pygame.K_ESCAPE, pygame.K_h, pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_SPACE}:
+            self._close_replay()
             self.manager.go_to("home")
         elif event.key == pygame.K_l:
+            self._close_replay()
             self.manager.go_to("leaderboard")
 
     def update(self, now_ms: int, dt_ms: int) -> None:
-        return None
+        self._drain_replay_queue()
+        if self.replay_player is not None:
+            self.replay_player.advance(now_ms)
 
     def handle_app_event(self, event: AppEvent) -> None:
         if event.type != EVENT_AI_JOB_UPDATE:
@@ -60,12 +87,98 @@ class ScoreRevealScreen:
         job_id = event.payload.get("job_id")
         if not isinstance(job_id, str):
             return
+        metadata = event.payload.get("metadata", {})
+        status = event.payload.get("status")
         self.ai_job_statuses[job_id] = {
-            "status": event.payload.get("status"),
-            "kind": event.payload.get("metadata", {}).get("kind"),
-            "metadata": event.payload.get("metadata", {}),
+            "status": status,
+            "kind": metadata.get("kind"),
+            "metadata": metadata,
         }
+        if job_id != self.replay_job_id:
+            return
+        if status == "succeeded":
+            result = metadata.get("result") or {}
+            url = result.get("uri") or result.get("video_url")
+            if isinstance(url, str) and url:
+                LOGGER.info("Mog replay: generated video %s", url)
+                self.replay_phase = "downloading"
+                download_in_background(url, lambda path: self._replay_queue.put(path))
+            else:
+                self.replay_phase = "failed"
+                self.replay_error = "no video URL in result"
+        elif status in {"failed", "timed_out"}:
+            self.replay_phase = "failed"
+            self.replay_error = str(metadata.get("error") or status)
+            LOGGER.warning("Mog replay: job %s (%s)", status, self.replay_error)
 
+    # ------------------------------------------------------------------
+    # Replay generation
+    # ------------------------------------------------------------------
+    def _can_generate_replay(self) -> bool:
+        config = getattr(self.manager, "config", None)
+        service = getattr(self.manager, "ai_job_service", None)
+        image = getattr(self.manager.state, "reveal_replay_image", None)
+        return bool(
+            config is not None
+            and getattr(config, "enable_pika", False)
+            and service is not None
+            and image is not None
+            and self.manager.state.selected_game_type == "mog_mirror"
+        )
+
+    def _start_replay(self) -> None:
+        service = self.manager.ai_job_service
+        image = self.manager.state.reveal_replay_image
+        image_bytes = encode_bgr_jpeg(image)
+        if not image_bytes:
+            self.replay_phase = "failed"
+            self.replay_error = "could not encode capture"
+            return
+        payload = {
+            "game_type": "mog_mirror",
+            "image_bytes": image_bytes,
+            "image_mime_type": "image/jpeg",
+            "prompt": build_replay_prompt(self.manager.state.reveal_rows),
+            "negative_prompt": MOG_REPLAY_NEGATIVE_PROMPT,
+            "has_crop": True,
+        }
+        self.replay_job_id = service.submit("mog_mirror.replay_video", payload)
+        self.replay_phase = "generating"
+        self.replay_error = ""
+        LOGGER.info("Mog replay: submitted job %s", self.replay_job_id)
+
+    def _drain_replay_queue(self) -> None:
+        while True:
+            try:
+                path = self._replay_queue.get_nowait()
+            except queue.Empty:
+                break
+            if path is None:
+                self.replay_phase = "failed"
+                self.replay_error = "download failed"
+                continue
+            player = LoopingVideoPlayer(path)
+            if not player.is_ready:
+                player.close()
+                self.replay_phase = "failed"
+                self.replay_error = "could not open clip"
+                continue
+            self._close_replay()
+            self.replay_player = player
+            self.replay_phase = "ready"
+            LOGGER.info("Mog replay: ready (%s)", path)
+
+    def _close_replay(self) -> None:
+        if self.replay_player is not None:
+            try:
+                self.replay_player.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self.replay_player = None
+
+    # ------------------------------------------------------------------
+    # Rendering
+    # ------------------------------------------------------------------
     def render(self, surface: Any) -> None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
@@ -97,6 +210,51 @@ class ScoreRevealScreen:
         else:
             self._render_score_rows(pygame, surface, rows, fonts, width)
 
+        button_y = height - 132
+        home_rect = pygame.Rect(width // 2 - 224, button_y, 196, 58)
+        board_rect = pygame.Rect(width // 2 + 28, button_y, 196, 58)
+        draw_button(pygame, surface, home_rect, "HOME", fonts.body, selected=True, accent=game.accent)
+        draw_button(pygame, surface, board_rect, "BOARD", fonts.body, selected=False, accent=game.accent)
+        draw_bottom_rule(pygame, surface, height - 44, width)
+        self._render_replay_hint(surface, fonts, width, height)
+
+        if self.replay_phase == "ready":
+            self._render_replay_video(pygame, surface, fonts, width, height)
+        elif self.replay_phase in {"generating", "downloading"}:
+            self._render_replay_generating(pygame, surface, fonts, width, height)
+
+    def _render_replay_hint(self, surface: Any, fonts: FontSet, width: int, height: int) -> None:
+        nav = "ENTER HOME / L BOARD"
+        if self._can_generate_replay():
+            if self.replay_phase == "idle":
+                nav = "G AI REPLAY / ENTER HOME / L BOARD"
+            elif self.replay_phase == "failed":
+                nav = f"REPLAY FAILED ({self.replay_error}) — G RETRY / ENTER HOME"
+            elif self.replay_phase == "ready":
+                nav = "AI REPLAY READY / ENTER HOME / L BOARD"
+        draw_text(surface, nav, fonts.small, theme.TEXT_MUTED, (48, height - 32), max_width=width - 96)
+
+    def _render_replay_generating(self, pygame: Any, surface: Any, fonts: FontSet, width: int, height: int) -> None:
+        overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 190))
+        surface.blit(overlay, (0, 0))
+        dots = "." * (1 + (pygame.time.get_ticks() // 500) % 3)
+        verb = "GENERATING REPLAY" if self.replay_phase == "generating" else "DOWNLOADING REPLAY"
+        draw_text(surface, f"{verb}{dots}", fonts.masthead, theme.ACCENT, (width // 2, height // 2 - 20), anchor="center")
+        draw_text(surface, "one clip from both sides — this can take a bit", fonts.body, theme.TEXT, (width // 2, height // 2 + 36), anchor="center")
+
+    def _render_replay_video(self, pygame: Any, surface: Any, fonts: FontSet, width: int, height: int) -> None:
+        frame = self.replay_player.current_frame_bgr() if self.replay_player is not None else None
+        if frame is None:
+            return
+        overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 170))
+        surface.blit(overlay, (0, 0))
+        draw_text(surface, "AI REPLAY", fonts.title, theme.ACCENT, (width // 2, 80), anchor="center")
+        video_rect = pygame.Rect(0, 0, min(width - 120, 960), min(height - 240, 560))
+        video_rect.center = (width // 2, height // 2)
+        self._draw_crop(pygame, surface, video_rect, frame, theme.ACCENT)
+        draw_text(surface, "ENTER / ESC HOME", fonts.small, theme.TEXT_MUTED, (width // 2, height - 70), anchor="center")
 
     def _render_score_rows(self, pygame: Any, surface: Any, rows: list[dict[str, Any]], fonts: FontSet, width: int) -> None:
         panel_w = min(920, width - 96)
@@ -166,7 +324,7 @@ class ScoreRevealScreen:
             if rank and not row.get("winner"):
                 label = f"{label} / RANK #{rank}"
             draw_text(surface, label, fonts.small, border if row.get("winner") else theme.TEXT_MUTED, (rect.left + 28, rect.bottom - 72), max_width=rect.width - 170)
-        
+
     def _draw_row_details(self, surface: Any, row: dict[str, Any], fonts: FontSet, text_x: int, rect: Any) -> None:
         label = str(row.get("label") or "")
         if label:
@@ -178,16 +336,6 @@ class ScoreRevealScreen:
                 fonts.small,
                 theme.TEXT_MUTED,
                 (text_x, rect.bottom - 38),
-                max_width=rect.width - (text_x - rect.left) - 230,
-            )
-        ai_status = self._ai_status_label(row)
-        if ai_status:
-            draw_text(
-                surface,
-                ai_status,
-                fonts.small,
-                theme.ACCENT if "READY" in ai_status else theme.TEXT_MUTED,
-                (text_x, rect.bottom - 20),
                 max_width=rect.width - (text_x - rect.left) - 230,
             )
 
