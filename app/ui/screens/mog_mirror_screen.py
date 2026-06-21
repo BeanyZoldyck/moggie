@@ -568,7 +568,7 @@ class MogMirrorScreen:
             size = (max(1, int(size[0] * fit)), max(1, int(size[1] * fit)))
         if size != image.get_size():
             image = pygame.transform.smoothscale(image, size)
-        score_rect = image.get_rect(midright=(rect.right + 60, rect.bottom - 54))
+        score_rect = image.get_rect(midright=(rect.right + 35, rect.bottom - 60))
         shadow = image.copy()
         shadow.fill((12, 32, 16), special_flags=pygame.BLEND_RGB_MULT)
         surface.blit(shadow, score_rect.move(2, 2))

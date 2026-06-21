@@ -245,9 +245,7 @@ class ScoreRevealScreen:
         winners = [row for row in rows if row.get("winner")]
         if len(winners) == 1:
             player_index = rows.index(winners[0])
-            win_asset = "player1_win.png" if player_index == 0 else "player2_win.png"
-        else:
-            win_asset = "tie.png"
+            win_asset = "arcade_bg.png"
         win_bg = scaled_asset_image(pygame, win_asset, (width, height))
         if win_bg is not None:
             surface.blit(win_bg, (0, 0))
@@ -341,16 +339,16 @@ class ScoreRevealScreen:
         visible_rows = rows[:2]
         gap = 0
         available_h = max(320, height - 300)
-        card_w = min(420, (width - 240) // 2)
-        card_h = min(470, available_h)
+        card_w = min(320, (width - 300) // 2)
+        card_h = min(390, available_h)
         total_w = card_w * 2 + gap
         left = (width - total_w) // 2
-        top = 120
+        top = 180
         for index, row in enumerate(visible_rows):
             rect = pygame.Rect(left + index * (card_w + gap), top, card_w, card_h)
             color = (0, 130, 255) if index == 0 else (255, 60, 160)
             border = color
-            draw_panel(pygame, surface, rect, fill=theme.SURFACE, border=border, width=3)
+            draw_panel(pygame, surface, rect, fill=(8, 18, 45), border=border, width=3)
             draw_text(surface, f"P{index + 1}", fonts.body, border, (rect.left + 24, rect.top + 18))
             draw_text(
                 surface,
@@ -369,12 +367,12 @@ class ScoreRevealScreen:
                 self._draw_crop(pygame, surface, crop_rect, row["crop_bgr"], border)
 
             score = "--" if row.get("score") is None else str(row["score"])
-            draw_text(surface, score, fonts.masthead, theme.TEXT, (rect.right - 28, rect.bottom - 76), anchor="midright")
+            draw_text(surface, score, fonts.masthead, theme.TEXT, (rect.right - 28, rect.bottom - 60), anchor="midright")
             label = "WINNER" if row.get("winner") else str(row.get("label") or "")
             rank = row.get("rank")
             if rank and not row.get("winner"):
                 label = f"{label} / RANK #{rank}"
-            draw_text(surface, label, fonts.small, border if row.get("winner") else theme.TEXT_MUTED, (rect.left + 28, rect.bottom - 72), max_width=rect.width - 170)
+            draw_text(surface, label, fonts.small, border if row.get("winner") else theme.TEXT_MUTED, (rect.left + 28, rect.bottom - 60), max_width=rect.width - 170)
 
     def _draw_row_details(self, surface: Any, row: dict[str, Any], fonts: FontSet, text_x: int, rect: Any) -> None:
         label = str(row.get("label") or "")
