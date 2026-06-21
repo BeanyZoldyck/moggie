@@ -5,7 +5,7 @@ from typing import Any
 
 from app.games.mog_mirror import crop_upper_body, label_for_aura, score_aura
 from app.ui import theme
-from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text
+from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text, scaled_asset_image
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.face_overlay_renderer import FaceOverlayRenderer
 from app.util.images import encode_bgr_jpeg
@@ -94,7 +94,11 @@ class MogMirrorScreen:
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-        surface.fill(theme.BACKGROUND)
+        bg = scaled_asset_image(pygame, "mog_mirror_bg.png", (width, height))
+        if bg is not None:
+            surface.blit(bg, (0, 0))
+        else:
+            surface.fill(theme.BACKGROUND)
 
         pygame.draw.rect(surface, (24, 31, 24), pygame.Rect(0, 0, width, 104))
         pygame.draw.rect(surface, theme.ACCENT, pygame.Rect(0, 104, width, 4))
@@ -114,6 +118,7 @@ class MogMirrorScreen:
             frame_bgr=frame,
             diagnostic=diagnostic,
             show_divider=self.manager.config.show_zone_divider,
+            split_pane=self.manager.config.show_zone_divider,
         )
         faces = self._faces()
         self.face_renderer.render(

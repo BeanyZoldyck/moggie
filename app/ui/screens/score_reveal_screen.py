@@ -12,6 +12,7 @@ from app.ui.render_utils import (
     draw_button,
     draw_panel,
     draw_text,
+    scaled_asset_image,
 )
 
 
@@ -70,20 +71,31 @@ class ScoreRevealScreen:
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-        surface.fill(theme.BACKGROUND)
 
         game = game_for_type(self.manager.state.selected_game_type)
-        pygame.draw.rect(surface, (31, 24, 24), pygame.Rect(0, 0, width, 118))
-        pygame.draw.rect(surface, game.accent, pygame.Rect(0, 118, width, 4))
-        draw_text(surface, "PLAYERS LOCKED", fonts.title, theme.TEXT, (48, 30), max_width=width - 96)
-        draw_text(surface, game.title, fonts.body, game.accent, (52, 92), max_width=width - 104)
-
         rows = self.manager.state.reveal_rows or [
             {"display_name": name, "score": None, "label": "READY"}
             for name in self.manager.state.player_names
         ]
         if not rows:
             rows = [{"display_name": "Player 1", "score": None, "label": "READY"}]
+
+        winners = [row for row in rows if row.get("winner")]
+        if len(winners) == 1:
+            player_index = rows.index(winners[0])
+            win_asset = "player1_win.png" if player_index == 0 else "player2_win.png"
+        else:
+            win_asset = "tie.png"
+        win_bg = scaled_asset_image(pygame, win_asset, (width, height))
+        if win_bg is not None:
+            surface.blit(win_bg, (0, 0))
+        else:
+            surface.fill(theme.BACKGROUND)
+
+        pygame.draw.rect(surface, (31, 24, 24), pygame.Rect(0, 0, width, 118))
+        pygame.draw.rect(surface, game.accent, pygame.Rect(0, 118, width, 4))
+        draw_text(surface, "PLAYERS LOCKED", fonts.title, theme.TEXT, (48, 30), max_width=width - 96)
+        draw_text(surface, game.title, fonts.body, game.accent, (52, 92), max_width=width - 104)
 
         if game.game_type == "mog_mirror" and any(row.get("crop_bgr") is not None for row in rows):
             self._render_mog_mirror_portraits(pygame, surface, rows, fonts, width, height)

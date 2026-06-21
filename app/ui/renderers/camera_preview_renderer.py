@@ -24,6 +24,7 @@ class CameraPreviewRenderer:
         frame_bgr: Any | None,
         diagnostic: str,
         show_divider: bool = True,
+        split_pane: bool = False,
     ) -> Any | None:
         pygame = _pygame()
         self.fonts = self.fonts or build_fonts(pygame)
@@ -35,6 +36,9 @@ class CameraPreviewRenderer:
         if frame_bgr is None:
             self._render_diagnostic(pygame, surface, inner, diagnostic)
             return None
+
+        if split_pane and show_divider:
+            return self._render_split(pygame, surface, inner, frame_bgr)
 
         preview = self._surface_from_bgr(pygame, frame_bgr)
         scaled_size = scale_to_fit(preview.get_size(), inner.size)
@@ -48,6 +52,42 @@ class CameraPreviewRenderer:
             self._draw_zone_label(surface, "P1", (target.left + 14, target.top + 12), theme.ACCENT)
             self._draw_zone_label(surface, "P2", (target.right - 14, target.top + 12), theme.WARNING, anchor="topright")
         return target
+
+    def _render_split(self, pygame: Any, surface: Any, rect: Any, frame_bgr: Any) -> Any:
+        gap = 6
+        pane_w = (rect.width - gap) // 2
+        left_rect = pygame.Rect(rect.left, rect.top, pane_w, rect.height)
+        right_rect = pygame.Rect(rect.left + pane_w + gap, rect.top, rect.width - pane_w - gap, rect.height)
+
+        frame_h, frame_w = frame_bgr.shape[:2]
+        split_px = frame_w // 2
+        self._blit_crop_fill(pygame, surface, frame_bgr[:, :split_px], left_rect)
+        self._blit_crop_fill(pygame, surface, frame_bgr[:, split_px:], right_rect)
+
+        pygame.draw.rect(surface, theme.ACCENT, left_rect, 2, border_radius=4)
+        pygame.draw.rect(surface, theme.WARNING, right_rect, 2, border_radius=4)
+        self._draw_zone_label(surface, "P1", (left_rect.left + 10, left_rect.top + 8), theme.ACCENT)
+        self._draw_zone_label(surface, "P2", (right_rect.right - 10, right_rect.top + 8), theme.WARNING, anchor="topright")
+        return pygame.Rect(rect.left, rect.top, rect.width, rect.height)
+
+    def _blit_crop_fill(self, pygame: Any, surface: Any, frame: Any, dest: Any) -> None:
+        src_h, src_w = frame.shape[:2]
+        if src_w == 0 or src_h == 0 or dest.width == 0 or dest.height == 0:
+            return
+        src_ratio = src_w / src_h
+        dst_ratio = dest.width / dest.height
+        if src_ratio > dst_ratio:
+            crop_h = src_h
+            crop_w = int(crop_h * dst_ratio)
+            crop_x = (src_w - crop_w) // 2
+            crop_y = 0
+        else:
+            crop_w = src_w
+            crop_h = int(crop_w / dst_ratio)
+            crop_x = 0
+            crop_y = (src_h - crop_h) // 2
+        cropped = frame[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
+        surface.blit(self._surface_from_bgr(pygame, cropped, size=(dest.width, dest.height)), dest)
 
     def _render_diagnostic(self, pygame: Any, surface: Any, rect: Any, diagnostic: str) -> None:
         assert self.fonts is not None
@@ -78,7 +118,10 @@ class CameraPreviewRenderer:
         assert self.fonts is not None
         draw_text(surface, label, self.fonts.mono, color, position, anchor=anchor)
 
-    def _surface_from_bgr(self, pygame: Any, frame_bgr: Any) -> Any:
-        rgb = frame_bgr[:, :, ::-1]
+    def _surface_from_bgr(self, pygame: Any, frame_bgr: Any, *, size: tuple[int, int] | None = None) -> Any:
+        import cv2
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        if size is not None:
+            rgb = cv2.resize(rgb, size, interpolation=cv2.INTER_AREA)
         height, width = rgb.shape[:2]
         return pygame.image.frombuffer(rgb.tobytes(), (width, height), "RGB").convert()

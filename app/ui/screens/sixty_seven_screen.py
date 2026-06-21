@@ -6,7 +6,7 @@ from typing import Any
 from app.core.app_event import current_time_ms
 from app.cv.sixty_seven_counter import SixtySevenCounter
 from app.ui import theme
-from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text
+from app.ui.render_utils import FontSet, build_fonts, draw_bottom_rule, draw_panel, draw_text, scaled_asset_image
 from app.ui.renderers.camera_preview_renderer import CameraPreviewRenderer
 from app.ui.renderers.hand_overlay_renderer import HandOverlayRenderer
 
@@ -122,7 +122,11 @@ class SixtySevenScreen:
         self.fonts = self.fonts or build_fonts(pygame)
         fonts = self.fonts
         width, height = surface.get_size()
-        surface.fill(theme.BACKGROUND)
+        bg = scaled_asset_image(pygame, "sixseven_bg.PNG", (width, height))
+        if bg is not None:
+            surface.blit(bg, (0, 0))
+        else:
+            surface.fill(theme.BACKGROUND)
 
         pygame.draw.rect(surface, (31, 24, 24), pygame.Rect(0, 0, width, 104))
         pygame.draw.rect(surface, theme.WARNING, pygame.Rect(0, 104, width, 4))
